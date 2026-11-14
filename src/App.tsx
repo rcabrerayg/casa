@@ -59,7 +59,7 @@ export default function App() {
       <nav className="pie-nav cuatro" aria-label="Secciones">
         <button aria-current={vista === 'bebe' ? 'page' : undefined} onClick={() => setVista('bebe')}>{casa.bebe.name}</button>
         <button aria-current={vista === 'resumen' ? 'page' : undefined} onClick={() => setVista('resumen')}>Resumen</button>
-        <button aria-current={vista === 'super' ? 'page' : undefined} onClick={() => setVista('super')}>Súper</button>
+        <button aria-current={vista === 'super' ? 'page' : undefined} onClick={() => setVista('super')}>Comida</button>
         <button aria-current={vista === 'hoy' ? 'page' : undefined} onClick={() => setVista('hoy')}>Casa y avisos</button>
       </nav>
     </div>

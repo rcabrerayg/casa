@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
+import Semana from './Semana'
 import { supabase } from '../lib/supabase'
 import {
   buscar, cargarLista, ofertas, equivalente, escucharLista, euros, NOMBRE, repartir, SUPERS, textoLista,
@@ -94,6 +95,15 @@ export default function Super({ member }: { member: Member }) {
   const [aviso, setAviso] = useState('')
   const [verComprados, setVerComprados] = useState(false)
   const [rebajas, setRebajas] = useState<Producto[] | null>(null)
+  const [vista, setVista] = useState<'semana' | 'lista'>(() => (localStorage.getItem('casa-comida') as 'semana' | 'lista') ?? 'semana')
+  const irA = (v: 'semana' | 'lista') => {
+    setVista(v)
+    try {
+      localStorage.setItem('casa-comida', v)
+    } catch {
+      /* sin almacenamiento */
+    }
+  }
   const entrada = useRef<HTMLInputElement>(null)
   const probados = useRef(new Set<string>())
 
@@ -209,10 +219,27 @@ export default function Super({ member }: { member: Member }) {
 
   return (
     <main className="pantalla">
-      <p className="ceja">Súper · Tenerife</p>
+      <p className="ceja">Comida · Tenerife</p>
       <h1 className="titular">
-        La compra, <span className="cursiva">repartida.</span>
+        {vista === 'semana' ? (
+          <>
+            La semana, <span className="cursiva">resuelta.</span>
+          </>
+        ) : (
+          <>
+            La compra, <span className="cursiva">repartida.</span>
+          </>
+        )}
       </h1>
+      <div className="sm-segmento" role="tablist">
+        <button role="tab" aria-selected={vista === 'semana'} onClick={() => irA('semana')}>Menú de la semana</button>
+        <button role="tab" aria-selected={vista === 'lista'} onClick={() => irA('lista')}>
+          Lista{pendientes.length ? ` · ${pendientes.length}` : ''}
+        </button>
+      </div>
+      {vista === 'semana' && <Semana member={member} onIrALista={() => irA('lista')} />}
+      {vista === 'lista' && (
+      <>
 
       <div className="sp-buscar">
         <input
@@ -331,6 +358,8 @@ export default function Super({ member }: { member: Member }) {
           Precios de Mercadona (CP 38107) e HiperDino Tenerife, actualizados cada noche. Último:{' '}
           {new Intl.DateTimeFormat('es-ES', { timeZone: 'Atlantic/Canary', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(resumen.actualizado))}.
         </p>
+      )}
+      </>
       )}
     </main>
   )
