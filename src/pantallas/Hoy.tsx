@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase, type Household, type Member } from '../lib/supabase'
 import { enablePush, pushState, sendTest, type PushState } from '../lib/push'
+import AjustesAvisos from './AjustesAvisos'
 
 const TZ = 'Atlantic/Canary'
 
@@ -78,7 +79,7 @@ export default function Hoy({ member }: { member: Member }) {
         </h1>
       </div>
       <p className="apagado" style={{ margin: '-6px 0 0', fontSize: 15, lineHeight: 1.5 }}>
-        Casa está en obras: de momento solo comprobamos que los avisos llegan a los dos móviles.
+        Aquí decides qué te avisa y cuándo. Pocos avisos y solo los que sirven.
       </p>
 
       <section className="tarjeta-noche" aria-labelledby="avisos">
@@ -92,6 +93,8 @@ export default function Hoy({ member }: { member: Member }) {
         )}
         {mensaje && <p role="status" style={{ margin: 0, fontSize: 14, color: '#CFCFD4' }}>{mensaje}</p>}
       </section>
+
+      <AjustesAvisos member={member} />
 
       <section className="bloque">
         <h2 className="ceja">En casa</h2>

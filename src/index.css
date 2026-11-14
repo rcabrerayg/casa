@@ -128,3 +128,17 @@ button.registro { width: 100%; background: none; border: none; color: inherit; c
 .tabla thead th { font-family: var(--display); font-size: 11px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--tinta-3); }
 .tabla tbody th { font-family: var(--display); font-weight: 500; }
 .pie-nav { grid-template-columns: repeat(3, minmax(0,1fr)); }
+
+/* ——— Ajustes de avisos ——— */
+.ajustes { display: flex; flex-direction: column; gap: 4px; }
+.interruptor { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--linea); cursor: pointer; min-height: 56px; }
+.interruptor span { display: flex; flex-direction: column; gap: 2px; }
+.interruptor b { font-weight: 500; font-size: 16px; }
+.interruptor small { font-size: 13px; color: var(--tinta-2); }
+.interruptor input { appearance: none; -webkit-appearance: none; width: 48px; height: 28px; border-radius: 999px; background: #CFCFD4; position: relative; flex-shrink: 0; cursor: pointer; transition: background .15s; }
+.interruptor input::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.interruptor input:checked { background: var(--noche); }
+.interruptor input:checked::after { transform: translateX(20px); }
+.interruptor input:focus-visible { outline: 2px solid var(--senal); outline-offset: 2px; }
+.campo select { height: 48px; padding: 0 12px; border: 1px solid var(--linea); border-radius: 12px; background: var(--papel); font-size: 16px; }
+.ajustes .campo { padding-top: 12px; }
