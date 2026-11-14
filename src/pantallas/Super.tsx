@@ -95,12 +95,20 @@ export default function Super({ member }: { member: Member }) {
   const [verComprados, setVerComprados] = useState(false)
   const [rebajas, setRebajas] = useState<Producto[] | null>(null)
   const entrada = useRef<HTMLInputElement>(null)
+  const probados = useRef(new Set<string>())
 
   const recargar = useCallback(async () => {
     try {
       const r = await cargarLista()
       setItems(r.items)
       setProductos(r.productos)
+      // Productos sin pareja en el otro súper (p. ej. añadidos antes de tener su precio): se buscan una vez.
+      const sinPareja = r.items.filter((i) => i.producto_id && !i.alternativa_id && !i.comprado_at && !probados.current.has(i.id)).slice(0, 5)
+      for (const i of sinPareja) {
+        probados.current.add(i.id)
+        const alt = await equivalente(i.producto_id!)
+        if (alt) await supabase.from('lista_items').update({ alternativa_id: alt.id }).eq('id', i.id)
+      }
     } catch (e) {
       setAviso((e as Error).message)
     }

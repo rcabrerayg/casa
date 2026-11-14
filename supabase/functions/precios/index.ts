@@ -150,22 +150,24 @@ function hiperdinoItems(html: string, categoria: string): Item[] {
     const orden = t.match(/data-sort='([^']*)'/)?.[1];
     const nombreCrudo = t.match(/class="description__text name">([^<]+)</)?.[1];
     if (!id || !nombreCrudo) continue;
-    let precio: number | null = null;
-    try {
-      precio = num(JSON.parse(desescapa(orden ?? "{}")).price_asc?.value);
-    } catch { /* sin precio */ }
-    if (!precio) {
-      precio = num(t.match(/price--final[\s\S]*?class="price__text[^"]*">\s*([\d.,]+)/)?.[1]);
+    // El precio visible es el bueno (en productos al peso el interno va por fracción).
+    const final = t.match(/price--final[\s\S]*?class="price__text[^"]*">\s*([\d.,]+)<span>€<\/span>(<span>\/(kg|l)<\/span>)?/);
+    let precio = num(final?.[1]?.replace(/\./g, ""));
+    const porPeso = (final?.[3] as "kg" | "l" | undefined) ?? null;
+    if (!precio && !porPeso) {
+      try {
+        precio = num(JSON.parse(desescapa(orden ?? "{}")).price_asc?.value);
+      } catch { /* sin precio */ }
     }
     if (!precio) continue;
-    const antes = num(t.match(/price--previous flex-item">[\s\S]*?class="price__text">\s*([\d.,]+)/)?.[1]);
+    const antes = num(t.match(/price--previous flex-item">[\s\S]*?class="price__text">\s*([\d.,]+)/)?.[1]?.replace(/\./g, ""));
     const nombre = desescapa(nombreCrudo);
-    const tam = tamano(nombre);
+    const tam = porPeso ? { cantidad: 1, unidad: porPeso } : tamano(nombre);
     const img = t.match(/data-src="([^"]+)"/)?.[1] ?? null;
     out.push({
       ext_id: id,
       nombre: nombre.charAt(0).toUpperCase() + nombre.slice(1),
-      formato: null,
+      formato: porPeso ? `al peso, por ${porPeso}` : null,
       categoria,
       imagen: img,
       url,
