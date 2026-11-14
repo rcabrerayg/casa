@@ -260,11 +260,13 @@ export default function Bebe({ member, bebe, mama }: Props) {
 
       <h2 className="ceja seccion">Sacaleches{esMama ? '' : ` · ${mama}`}</h2>
       <section className="saca">
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
-          <span style={{ fontSize: 13, color: '#A3A3AB' }}>
-            {ultimaExt ? `Última hace ${hace(ultimaExt.at, ahora)} · ${ext24.length} en 24 h` : 'Aún no hay extracciones apuntadas'}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 14 }}>
+            {ultimaExt
+              ? `Última ${hace(ultimaExt.at, ahora) === 'Ahora' ? 'ahora mismo' : `hace ${hace(ultimaExt.at, ahora)}`} · ${ext24.length} en 24 h`
+              : 'Aún no hay extracciones apuntadas'}
           </span>
-          {mlSacados > 0 && <span style={{ fontSize: 13, color: '#A3A3AB' }}>{mlSacados} ml sacados · {mlDados} dados</span>}
+          {mlSacados > 0 && <span style={{ fontSize: 13, color: '#A3A3AB' }}>24 h: {mlSacados} ml sacados · {mlDados} ml dados a {bebe.name}</span>}
         </div>
         {tocaSacar && (
           <p className="recuerdo">
