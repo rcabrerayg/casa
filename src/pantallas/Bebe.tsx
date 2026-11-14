@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  actualizar, borrar, cargar, conPendientes, cronometro, edad, enCurso, escuchar, esPecho, etiqueta, hace, hora, minutos, nuevo, textoMetodo, vaciarCola,
+  actualizar, borrar, cargar, conPendientes, cronometro, cuando, dia, edad, kilos, enCurso, escuchar, esPecho, etiqueta, hace, hora, minutos, nuevo, textoMetodo, vaciarCola,
   type BabyEvent, type Cambio, type Metodo, type Person,
 } from '../lib/bebe'
 import { mensajes } from '../lib/animo'
@@ -88,6 +88,13 @@ export default function Bebe({ member, bebe, mama }: Props) {
   const minDesdeExt = ultimaExt ? minutos(ultimaExt.at, ahora) : 0
   const tocaSacar = !!ultimaExt && minDesdeExt >= 210
   const esMama = member.rol === 'mama'
+  const hoyDia = dia(ahora)
+  const panalesHoy = eventos.filter((e) => e.kind === 'panal' && dia(e.at) === hoyDia)
+  const pipisHoy = panalesHoy.filter((e) => e.panal !== 'caca').length
+  const cacasHoy = panalesHoy.filter((e) => e.panal !== 'pipi').length
+  const ultimaCaca = eventos.find((e) => e.kind === 'panal' && e.panal !== 'pipi')
+  const pesos = eventos.filter((e) => e.kind === 'peso')
+  const [gramos, setGramos] = useState('')
 
   // Cronómetro: cada segundo si hay toma en curso; si no, cada 30 s.
   useEffect(() => {
@@ -293,6 +300,10 @@ export default function Bebe({ member, bebe, mama }: Props) {
       </section>
 
       <h2 className="ceja seccion">Pañal</h2>
+      <p style={{ margin: '-4px 0 0', fontSize: 13, color: '#A3A3AB' }}>
+        Hoy: {pipisHoy} con pipí · {cacasHoy} con caca
+        {ultimaCaca ? ` · última caca ${cuando(ultimaCaca.at, ahora)} (hace ${hace(ultimaCaca.at, ahora)})` : ''}
+      </p>
       <div className="rejilla r3">
         <button className="tecla" onClick={() => apuntar({ kind: 'panal', panal: 'pipi' })}><b>Pipí</b></button>
         <button className="tecla" onClick={() => apuntar({ kind: 'panal', panal: 'caca' })}><b>Caca</b></button>
@@ -307,6 +318,36 @@ export default function Bebe({ member, bebe, mama }: Props) {
         </span>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" /></svg>
       </button>
+
+      <h2 className="ceja seccion">Peso</h2>
+      <form
+        style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}
+        onSubmit={(ev) => {
+          ev.preventDefault()
+          const g = Math.round(Number(gramos.replace(',', '.')) * (gramos.includes(',') || gramos.includes('.') ? 1000 : 1))
+          if (g >= 1000 && g <= 15000) {
+            apuntar({ kind: 'peso', gramos: g })
+            setGramos('')
+          }
+        }}
+      >
+        <label htmlFor="gramos" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Peso en gramos o en kilos</label>
+        <input
+          id="gramos"
+          inputMode="decimal"
+          placeholder="3250 g o 3,25 kg"
+          value={gramos}
+          onChange={(ev) => setGramos(ev.target.value)}
+          style={{ flexGrow: 1, minWidth: 0, height: 56, borderRadius: 16, border: '1px solid rgba(255,255,255,.12)', background: '#1E1E1E', color: '#F2F2F0', padding: '0 16px', fontSize: 17 }}
+        />
+        <button className="tecla" type="submit" style={{ minHeight: 56, padding: '0 18px' }}><b>Apuntar</b></button>
+      </form>
+      {pesos.length > 0 && (
+        <p style={{ margin: 0, fontSize: 13, color: '#A3A3AB' }}>
+          Último: {kilos(pesos[0].gramos ?? 0)} · {cuando(pesos[0].at, ahora)}
+          {pesos[1] ? ` · ${(pesos[0].gramos ?? 0) - (pesos[1].gramos ?? 0) >= 0 ? '+' : ''}${(pesos[0].gramos ?? 0) - (pesos[1].gramos ?? 0)} g desde el anterior` : ''}
+        </p>
+      )}
 
       <section style={{ display: 'flex', flexDirection: 'column', marginTop: 10 }}>
         <h2 className="ceja" style={{ paddingBottom: 4 }}>
@@ -329,7 +370,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
                 className="p"
                 aria-hidden="true"
                 style={{
-                  background: e.kind === 'toma' ? '#F2F2F0' : e.kind === 'panal' ? '#6B6B73' : e.kind === 'extraccion' ? 'var(--senal)' : 'transparent',
+                  background: e.kind === 'toma' ? '#F2F2F0' : e.kind === 'panal' ? '#6B6B73' : e.kind === 'extraccion' ? 'var(--senal)' : e.kind === 'peso' ? '#7FD6B0' : 'transparent',
                   border: e.kind === 'dormido' || e.kind === 'despierto' ? '1px solid #A3A3AB' : 'none',
                 }}
               />

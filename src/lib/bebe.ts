@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 
 export const TZ = 'Atlantic/Canary'
 
-export type Kind = 'toma' | 'panal' | 'dormido' | 'despierto' | 'extraccion'
+export type Kind = 'toma' | 'panal' | 'dormido' | 'despierto' | 'extraccion' | 'peso'
 export type Metodo = 'jeringa' | 'biberon' | 'vasito'
 export type BabyEvent = {
   id: string
@@ -11,6 +11,7 @@ export type BabyEvent = {
   kind: Kind
   side: 'izq' | 'dcho' | 'bib' | 'extraida' | 'ambos' | null
   metodo: Metodo | null
+  gramos: number | null
   ml: number | null
   panal: 'pipi' | 'caca' | 'ambos' | null
   at: string
@@ -110,6 +111,7 @@ export function nuevo(base: Pick<BabyEvent, 'household_id' | 'person_id' | 'crea
     ml: null,
     panal: null,
     metodo: null,
+    gramos: null,
     ended_at: null,
     at: new Date().toISOString(),
     ...base,
@@ -131,16 +133,16 @@ export async function cargar(personId: string, desdeHoras = 72): Promise<BabyEve
   const desde = new Date(Date.now() - desdeHoras * 3600_000).toISOString()
   const { data } = await supabase
     .from('baby_events')
-    .select('id, household_id, person_id, kind, side, ml, panal, metodo, at, ended_at, created_by')
+    .select('id, household_id, person_id, kind, side, ml, panal, metodo, gramos, at, ended_at, created_by')
     .eq('person_id', personId)
     .gte('at', desde)
     .order('at', { ascending: false })
   return (data ?? []) as BabyEvent[]
 }
 
-export function escuchar(personId: string, alCambiar: () => void) {
+export function escuchar(personId: string, alCambiar: () => void, canalNombre = 'principal') {
   const canal = supabase
-    .channel('bebe-' + personId)
+    .channel(`bebe-${personId}-${canalNombre}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'baby_events', filter: `person_id=eq.${personId}` }, alCambiar)
     .subscribe()
   return () => {
@@ -190,7 +192,22 @@ export const esPecho = (e: BabyEvent) => e.kind === 'toma' && (e.side === 'izq' 
 const nombreMetodo: Record<Metodo, string> = { jeringa: 'jeringa y dedo', biberon: 'biberón', vasito: 'vasito' }
 export const textoMetodo = (m: Metodo) => nombreMetodo[m]
 
+export const kilos = (g: number) => (g / 1000).toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) + ' kg'
+
+/** Día natural en Canarias, para agrupar ("2026-11-14"). */
+export const dia = (iso: string | number) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso))
+
+/** "hoy 07:10", "ayer 07:10" o "12/11 07:10". */
+export function cuando(iso: string, ahora = Date.now()) {
+  const d = dia(iso)
+  if (d === dia(ahora)) return `hoy ${hora(iso)}`
+  if (d === dia(ahora - 86400_000)) return `ayer ${hora(iso)}`
+  return `${d.slice(8, 10)}/${d.slice(5, 7)} ${hora(iso)}`
+}
+
 export function etiqueta(e: BabyEvent) {
+  if (e.kind === 'peso') return `Peso · ${e.gramos ? kilos(e.gramos) : '?'}`
   if (e.kind === 'extraccion') {
     const lado = e.side === 'izq' ? 'izquierdo' : e.side === 'dcho' ? 'derecho' : 'los dos'
     return `Sacaleches · ${lado}${e.ml ? ` · ${e.ml} ml` : ''}`
