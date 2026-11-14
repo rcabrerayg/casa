@@ -55,11 +55,11 @@ function Ajustes({ inicial, onGuardado, onCancelar }: { inicial: Prefs; onGuarda
       <h2 className="ceja">Tu cocina</h2>
       <div className="sm-dos">
         <div className="campo">
-          <label htmlFor="presupuesto">Presupuesto por semana (€)</label>
+          <label htmlFor="presupuesto">€ por semana</label>
           <input id="presupuesto" type="number" inputMode="decimal" min={10} max={500} step={5} value={p.presupuesto} onChange={(e) => cambia('presupuesto', Number(e.target.value))} />
         </div>
         <div className="campo">
-          <label htmlFor="personas">Personas que comen</label>
+          <label htmlFor="personas">Personas</label>
           <input id="personas" type="number" inputMode="numeric" min={1} max={10} value={p.personas} onChange={(e) => cambia('personas', Number(e.target.value))} />
         </div>
       </div>
