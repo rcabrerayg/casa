@@ -26,6 +26,11 @@ const paraElla = [
   'Te mereces el mismo cuidado que le das a {bebe}.',
   'No hay que ganarse el descanso. Si puedes dormir un rato, duerme.',
   'Mírate con la ternura con la que miras a {bebe}.',
+  'Pecho, sacaleches, jeringa o biberón: lo importante es que {bebe} come y tú te cuidas.',
+  'Que duela no significa que lo estés haciendo mal. Las grietas tienen arreglo; pedir ayuda es parte del camino.',
+  'Cada ml que te sacas es tuyo y de {bebe}. Cuenta todo, lo poco también.',
+  'Tus ganas de darle el pecho ya son una forma de cuidarle. Hoy le alimentas igual, de otra manera.',
+  'Proteger tus pezones para volver al pecho cuando se curen es una decisión valiente y sensata.',
 ]
 
 const paraEl = [
@@ -38,6 +43,11 @@ const paraEl = [
   'Si llora, no hace falta arreglar nada. Acompáñala.',
   'Que hoy no tenga que pensar en nada de casa. Eso lo llevas tú.',
   'Recuérdale lo que ha superado para llegar hasta aquí.',
+  'Lava y prepara el sacaleches para que ella no tenga que pensar en ello.',
+  'Cuando se saque leche, siéntate con ella o tráele agua y algo de picar.',
+  'Dale tú la leche con la jeringa y deja que ella cierre los ojos un rato.',
+  'Pide cita con la matrona o una asesora de lactancia por las grietas: quítale esa gestión.',
+  'Recuérdale que cada ml cuenta, aunque hoy salga poco.',
 ]
 
 const horaLocal = (ms: number) => Number(new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: 'numeric', hour12: false }).format(new Date(ms)))
@@ -60,6 +70,8 @@ export function mensajes(c: Ctx): Mensaje[] {
   const noche = tomasNoche(c.eventos, c.ahora)
   const h24 = c.eventos.filter((e) => c.ahora - new Date(e.at).getTime() < 86400_000)
   const tomas = h24.filter((e) => e.kind === 'toma').length
+  const ext = h24.filter((e) => e.kind === 'extraccion')
+  const mlExt = ext.reduce((a, e) => a + (e.ml ?? 0), 0)
 
   if (c.esMama) {
     if (noche >= 2 && horaLocal(c.ahora) < 13) ctx.push(`Esta noche ha habido ${noche} tomas. Nadie lo ha visto, pero aquí queda: lo estás haciendo.`)
@@ -67,8 +79,15 @@ export function mensajes(c: Ctx): Mensaje[] {
     if (dias !== null && dias >= 2 && dias <= 10)
       ctx.push('Estos días las hormonas bajan de golpe y es normal tener lágrimas sin motivo. No estás sola. Si pesa demasiado o dura más de un par de semanas, cuéntaselo a la matrona.')
     if (tomas >= 6) ctx.push(`${tomas} tomas en 24 horas. Eso es dedicación pura.`)
+    if (ext.length >= 1)
+      ctx.unshift(
+        mlExt > 0
+          ? `Hoy te has sacado ${mlExt} ml para {bebe}, con los pezones como los tienes. Eso es amor del bueno.`
+          : `Llevas ${ext.length} ${ext.length === 1 ? 'extracción' : 'extracciones'} hoy. Cada una cuenta, salga lo que salga.`,
+      )
   } else {
     if (noche >= 2 && horaLocal(c.ahora) < 13) ctx.push(`Esta noche ha habido ${noche} tomas. Hoy recuérdale a {mama} lo bien que lo ha hecho.`)
+    if (mlExt > 0) ctx.unshift(`{mama} se ha sacado hoy ${mlExt} ml con dolor. Díselo: lo estás viendo y es enorme.`)
     if (dias !== null && dias >= 2 && dias <= 10)
       ctx.push('Estos días son de bajón hormonal. Si la ves llorar sin motivo, es normal: lo que más ayuda es que estés cerca y le quites carga.')
   }
