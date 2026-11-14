@@ -184,3 +184,37 @@ p.sp-nota { padding: 0; }
 .chip-claro.activo { background: var(--noche); color: #fff; border-color: var(--noche); }
 .chip-claro.peligro { color: #B3261E; border-color: rgba(179,38,30,.35); }
 .sp-ofertas { align-self: flex-start; padding: 6px 0 0; min-height: 36px; }
+
+/* ——— Menú de la semana ——— */
+.sm-segmento { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--tinta); border-radius: 12px; overflow: hidden; }
+.sm-segmento button { min-height: 44px; background: transparent; border: none; font-size: 14px; cursor: pointer; color: var(--tinta-2); }
+.sm-segmento button[aria-selected="true"] { background: var(--noche); color: #fff; font-weight: 500; }
+.sm-intro { margin: 0; line-height: 1.5; font-size: 15px; }
+.sm-ajustes .etiqueta { font-size: 13px; color: var(--tinta-2); }
+.sm-ajustes textarea { padding: 12px 14px; border: 1px solid var(--linea); border-radius: 12px; background: var(--papel); font: inherit; font-size: 16px; resize: vertical; outline: none; }
+.sm-ajustes textarea:focus { border-color: var(--tinta); }
+.sm-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.opciones-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.sm-acciones { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.sm-cocinando { display: flex; flex-direction: column; gap: 6px; padding: 28px 0; border-top: 1px solid var(--tinta); }
+.sm-cocinando p { margin: 0; font-size: 28px; }
+.sm-cocinando small { color: var(--tinta-2); }
+.sm-punto { width: 10px; height: 10px; background: var(--senal); animation: late 1.2s ease-in-out infinite; }
+@keyframes late { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .sm-punto { animation: none; } }
+.sm-presupuesto { color: var(--tinta-2); font-size: 14px; margin-top: 4px !important; }
+.sm-presupuesto.pasado { color: #B3261E; }
+.sm-resumen-texto { margin: -8px 0 0; font-size: 19px; line-height: 1.3; }
+.sm-dia { display: flex; flex-direction: column; gap: 4px; }
+.sm-plato { border-top: 1px solid var(--linea); }
+.sm-dia .sm-plato:last-child { border-bottom: 1px solid var(--linea); }
+.sm-plato-cab { width: 100%; display: flex; gap: 14px; align-items: baseline; padding: 12px 0; background: none; border: none; text-align: left; cursor: pointer; min-height: 52px; }
+.sm-momento { width: 64px; flex-shrink: 0; font-family: var(--display); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--tinta-3); }
+.sm-detalle { padding: 0 0 14px 78px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 1.5; }
+.sm-detalle ul, .sm-detalle ol { margin: 0; padding-left: 18px; }
+.sm-detalle ul { color: var(--tinta-2); }
+.sm-detalle .chip-claro { align-self: flex-start; }
+.sm-consejo { margin: 0; font-size: 17px; color: #B8461F; }
+.sm-fijos { margin: 0; font-size: 14px; line-height: 1.5; }
+.sm-compra { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linea); }
+@media (max-width: 380px) { .sm-detalle { padding-left: 0; } }
