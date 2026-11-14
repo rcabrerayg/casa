@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  actualizar, borrar, cargar, conPendientes, cronometro, edad, enCurso, escuchar, etiqueta, hace, hora, minutos, nuevo, vaciarCola,
-  type BabyEvent, type Cambio, type Person,
+  actualizar, borrar, cargar, conPendientes, cronometro, edad, enCurso, escuchar, esPecho, etiqueta, hace, hora, minutos, nuevo, textoMetodo, vaciarCola,
+  type BabyEvent, type Cambio, type Metodo, type Person,
 } from '../lib/bebe'
 import { mensajes } from '../lib/animo'
 
@@ -10,6 +10,10 @@ type Props = { member: Member; bebe: Person; mama: string }
 type Lado = 'izq' | 'dcho'
 
 const ML_KEY = 'casa.ml'
+const ML_FORMULA = 'casa.ml.formula'
+const ML_SACA = 'casa.ml.saca'
+const METODO = 'casa.metodo'
+const leerNum = (k: string, def: number) => Number(localStorage.getItem(k)) || def
 const nombreLado = (l: Lado) => (l === 'izq' ? 'izquierdo' : 'derecho')
 const otro = (l: Lado): Lado => (l === 'izq' ? 'dcho' : 'izq')
 
@@ -27,7 +31,11 @@ export default function Bebe({ member, bebe, mama }: Props) {
   const [servidor, setServidor] = useState<BabyEvent[]>([])
   const [ver, setVer] = useState(0)
   const [ahora, setAhora] = useState(Date.now())
-  const [ml, setMl] = useState<number>(() => Number(localStorage.getItem(ML_KEY)) || 40)
+  const [ml, setMl] = useState<number>(() => leerNum(ML_KEY, 15))
+  const [mlFormula, setMlFormula] = useState<number>(() => leerNum(ML_FORMULA, 30))
+  const [mlSaca, setMlSaca] = useState<number>(() => leerNum(ML_SACA, 20))
+  const [metodo, setMetodo] = useState<Metodo>(() => (localStorage.getItem(METODO) as Metodo) || 'jeringa')
+  const [verFormula, setVerFormula] = useState(false)
   const [aviso, setAviso] = useState<BabyEvent | null>(null)
   const [abierto, setAbierto] = useState<string | null>(null)
   const [confirmar, setConfirmar] = useState(false)
@@ -64,7 +72,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
   const tomas = eventos.filter((e) => e.kind === 'toma')
   const ultimaToma = tomas[0]
   const actual = enCurso(ultimaToma, ahora) ? ultimaToma : undefined
-  const ultimoPecho = tomas.find((e) => e.side !== 'bib')
+  const ultimoPecho = tomas.find(esPecho)
   const sugerido: Lado | null = ultimoPecho?.side === 'izq' ? 'dcho' : ultimoPecho?.side === 'dcho' ? 'izq' : null
   const sueno = eventos.find((e) => e.kind === 'dormido' || e.kind === 'despierto')
   const dormido = sueno?.kind === 'dormido'
@@ -72,6 +80,14 @@ export default function Bebe({ member, bebe, mama }: Props) {
   const h24 = eventos.filter((e) => ahora - new Date(e.at).getTime() < 86400_000)
   const nTomas = h24.filter((e) => e.kind === 'toma').length
   const nPanales = h24.filter((e) => e.kind === 'panal').length
+  const extracciones = eventos.filter((e) => e.kind === 'extraccion')
+  const ultimaExt = extracciones[0]
+  const ext24 = extracciones.filter((e) => ahora - new Date(e.at).getTime() < 86400_000)
+  const mlSacados = ext24.reduce((a, e) => a + (e.ml ?? 0), 0)
+  const mlDados = h24.filter((e) => e.kind === 'toma' && e.side === 'extraida').reduce((a, e) => a + (e.ml ?? 0), 0)
+  const minDesdeExt = ultimaExt ? minutos(ultimaExt.at, ahora) : 0
+  const tocaSacar = !!ultimaExt && minDesdeExt >= 210
+  const esMama = member.rol === 'mama'
 
   // Cronómetro: cada segundo si hay toma en curso; si no, cada 30 s.
   useEffect(() => {
@@ -101,7 +117,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
     if (actual && datos.kind === 'toma') terminar()
     const e = nuevo(base, datos)
     sincronizar()
-    if (!(e.kind === 'toma' && e.side !== 'bib')) setAviso(e)
+    if (!esPecho(e)) setAviso(e)
     return e
   }
 
@@ -116,8 +132,8 @@ export default function Bebe({ member, bebe, mama }: Props) {
   }
 
   function cambiarPecho() {
-    if (!actual?.side || actual.side === 'bib') return
-    const siguiente = otro(actual.side)
+    if (!actual || !esPecho(actual)) return
+    const siguiente = otro(actual.side as Lado)
     terminar()
     nuevo(base, { kind: 'toma', side: siguiente })
     sincronizar()
@@ -139,10 +155,15 @@ export default function Bebe({ member, bebe, mama }: Props) {
     if (aviso?.id === e.id) setAviso({ ...e, ...patch })
   }
 
-  function cambiaMl(d: number) {
-    const v = Math.min(300, Math.max(5, ml + d))
-    setMl(v)
-    localStorage.setItem(ML_KEY, String(v))
+  function paso(valor: number, d: number, set: (n: number) => void, clave: string) {
+    const v = Math.min(300, Math.max(5, valor + d))
+    set(v)
+    localStorage.setItem(clave, String(v))
+  }
+
+  function elegirMetodo(m: Metodo) {
+    setMetodo(m)
+    localStorage.setItem(METODO, m)
   }
 
   return (
@@ -152,7 +173,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
         {sinRed && <p className="ceja" role="status">Sin conexión · se guarda aquí</p>}
       </div>
 
-      {actual && actual.side !== 'bib' && actual.side ? (
+      {actual && (actual.side === 'izq' || actual.side === 'dcho') ? (
         <section className="en-curso" aria-live="polite">
           <span className="ceja" style={{ color: '#181818' }}>Dando el pecho {nombreLado(actual.side)}</span>
           <span className="reloj" style={{ fontVariantNumeric: 'tabular-nums' }}>{cronometro(actual.at, ahora)}</span>
@@ -173,7 +194,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
           <span className="ceja">Desde la última toma</span>
           <span className="reloj">{ultimaToma ? hace(ultimaToma.at, ahora) : '—'}</span>
           <span style={{ fontSize: 13, color: '#A3A3AB' }}>
-            {ultimaToma ? `${etiqueta(ultimaToma)} · a las ${hora(ultimaToma.at)}` : 'Toca un pecho o el biberón para apuntar la primera toma.'}
+            {ultimaToma ? `${etiqueta(ultimaToma)} · a las ${hora(ultimaToma.at)}` : 'Toca un pecho o «Leche de mamá» para apuntar la primera toma.'}
           </span>
           {(sugerido || prox) && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginTop: 4 }}>
@@ -206,14 +227,68 @@ export default function Bebe({ member, bebe, mama }: Props) {
         </div>
       )}
       <div style={{ display: 'flex', gap: 10 }}>
-        <button className="tecla estrecha" aria-label="Cinco mililitros menos" onClick={() => cambiaMl(-5)}>−</button>
-        <button className="tecla" style={{ flexGrow: 1, flexDirection: 'row', alignItems: 'baseline', gap: 10 }} onClick={() => apuntar({ kind: 'toma', side: 'bib', ml })}>
-          <b>Biberón</b>
-          <span style={{ fontFamily: 'var(--display)', fontSize: 26 }}>{ml}</span>
-          <small>ml</small>
+        <button className="tecla estrecha" aria-label="Cinco mililitros menos" onClick={() => paso(ml, -5, setMl, ML_KEY)}>−</button>
+        <button className="tecla" style={{ flexGrow: 1, gap: 2 }} onClick={() => apuntar({ kind: 'toma', side: 'extraida', ml, metodo })}>
+          <small>Leche de mamá · {textoMetodo(metodo)}</small>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <span style={{ fontFamily: 'var(--display)', fontSize: 28 }}>{ml}</span>
+            <small>ml</small>
+          </span>
         </button>
-        <button className="tecla estrecha" aria-label="Cinco mililitros más" onClick={() => cambiaMl(5)}>+</button>
+        <button className="tecla estrecha" aria-label="Cinco mililitros más" onClick={() => paso(ml, 5, setMl, ML_KEY)}>+</button>
       </div>
+      <div className="segmentos" role="radiogroup" aria-label="Cómo se la damos">
+        {(['jeringa', 'biberon', 'vasito'] as const).map((m) => (
+          <button key={m} role="radio" aria-checked={metodo === m} className={metodo === m ? 'activo' : undefined} onClick={() => elegirMetodo(m)}>
+            {textoMetodo(m)}
+          </button>
+        ))}
+      </div>
+      {verFormula ? (
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="tecla estrecha" aria-label="Cinco mililitros menos de fórmula" onClick={() => paso(mlFormula, -5, setMlFormula, ML_FORMULA)}>−</button>
+          <button className="tecla" style={{ flexGrow: 1, flexDirection: 'row', alignItems: 'baseline', gap: 10 }} onClick={() => apuntar({ kind: 'toma', side: 'bib', ml: mlFormula, metodo })}>
+            <b>Fórmula</b>
+            <span style={{ fontFamily: 'var(--display)', fontSize: 24 }}>{mlFormula}</span>
+            <small>ml</small>
+          </button>
+          <button className="tecla estrecha" aria-label="Cinco mililitros más de fórmula" onClick={() => paso(mlFormula, 5, setMlFormula, ML_FORMULA)}>+</button>
+        </div>
+      ) : (
+        <button className="enlace" style={{ alignSelf: 'flex-start', minHeight: 36, padding: 0 }} onClick={() => setVerFormula(true)}>Apuntar fórmula</button>
+      )}
+
+      <h2 className="ceja seccion">Sacaleches{esMama ? '' : ` · ${mama}`}</h2>
+      <section className="saca">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+          <span style={{ fontSize: 13, color: '#A3A3AB' }}>
+            {ultimaExt ? `Última hace ${hace(ultimaExt.at, ahora)} · ${ext24.length} en 24 h` : 'Aún no hay extracciones apuntadas'}
+          </span>
+          {mlSacados > 0 && <span style={{ fontSize: 13, color: '#A3A3AB' }}>{mlSacados} ml sacados · {mlDados} dados</span>}
+        </div>
+        {tocaSacar && (
+          <p className="recuerdo">
+            {esMama
+              ? `Han pasado ${hace(ultimaExt!.at, ahora)} desde la última. Cuando puedas, sin prisa.`
+              : `Han pasado ${hace(ultimaExt!.at, ahora)} desde la última extracción. Buen momento para prepararle el sacaleches y un vaso de agua a ${mama}.`}
+          </p>
+        )}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="tecla estrecha" aria-label="Cinco mililitros menos sacados" onClick={() => paso(mlSaca, -5, setMlSaca, ML_SACA)}>−</button>
+          <div className="tecla" style={{ flexGrow: 1, cursor: 'default' }}>
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ fontFamily: 'var(--display)', fontSize: 28 }}>{mlSaca}</span>
+              <small>ml sacados</small>
+            </span>
+          </div>
+          <button className="tecla estrecha" aria-label="Cinco mililitros más sacados" onClick={() => paso(mlSaca, 5, setMlSaca, ML_SACA)}>+</button>
+        </div>
+        <div className="rejilla r3">
+          <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'izq', ml: mlSaca })}><small>Pecho</small><b>izquierdo</b></button>
+          <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'dcho', ml: mlSaca })}><small>Pecho</small><b>derecho</b></button>
+          <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'ambos', ml: mlSaca })}><small>Pecho</small><b>los dos</b></button>
+        </div>
+      </section>
 
       <h2 className="ceja seccion">Pañal</h2>
       <div className="rejilla r3">
@@ -252,7 +327,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
                 className="p"
                 aria-hidden="true"
                 style={{
-                  background: e.kind === 'toma' ? '#F2F2F0' : e.kind === 'panal' ? '#6B6B73' : 'transparent',
+                  background: e.kind === 'toma' ? '#F2F2F0' : e.kind === 'panal' ? '#6B6B73' : e.kind === 'extraccion' ? 'var(--senal)' : 'transparent',
                   border: e.kind === 'dormido' || e.kind === 'despierto' ? '1px solid #A3A3AB' : 'none',
                 }}
               />

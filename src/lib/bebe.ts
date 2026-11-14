@@ -2,13 +2,15 @@ import { supabase } from './supabase'
 
 export const TZ = 'Atlantic/Canary'
 
-export type Kind = 'toma' | 'panal' | 'dormido' | 'despierto'
+export type Kind = 'toma' | 'panal' | 'dormido' | 'despierto' | 'extraccion'
+export type Metodo = 'jeringa' | 'biberon' | 'vasito'
 export type BabyEvent = {
   id: string
   household_id: string
   person_id: string
   kind: Kind
-  side: 'izq' | 'dcho' | 'bib' | null
+  side: 'izq' | 'dcho' | 'bib' | 'extraida' | 'ambos' | null
+  metodo: Metodo | null
   ml: number | null
   panal: 'pipi' | 'caca' | 'ambos' | null
   at: string
@@ -107,6 +109,7 @@ export function nuevo(base: Pick<BabyEvent, 'household_id' | 'person_id' | 'crea
     side: null,
     ml: null,
     panal: null,
+    metodo: null,
     ended_at: null,
     at: new Date().toISOString(),
     ...base,
@@ -128,7 +131,7 @@ export async function cargar(personId: string, desdeHoras = 72): Promise<BabyEve
   const desde = new Date(Date.now() - desdeHoras * 3600_000).toISOString()
   const { data } = await supabase
     .from('baby_events')
-    .select('id, household_id, person_id, kind, side, ml, panal, at, ended_at, created_by')
+    .select('id, household_id, person_id, kind, side, ml, panal, metodo, at, ended_at, created_by')
     .eq('person_id', personId)
     .gte('at', desde)
     .order('at', { ascending: false })
@@ -179,12 +182,22 @@ export function cronometro(desde: string, ahora: number) {
 
 /** Toma de pecho empezada y sin terminar (máximo 90 min: después se da por olvidada). */
 export function enCurso(e: BabyEvent | undefined, ahora: number) {
-  return !!e && e.kind === 'toma' && e.side !== 'bib' && !e.ended_at && ahora - new Date(e.at).getTime() < 90 * 60000
+  return !!e && esPecho(e) && !e.ended_at && ahora - new Date(e.at).getTime() < 90 * 60000
 }
 
+export const esPecho = (e: BabyEvent) => e.kind === 'toma' && (e.side === 'izq' || e.side === 'dcho')
+
+const nombreMetodo: Record<Metodo, string> = { jeringa: 'jeringa y dedo', biberon: 'biberón', vasito: 'vasito' }
+export const textoMetodo = (m: Metodo) => nombreMetodo[m]
+
 export function etiqueta(e: BabyEvent) {
+  if (e.kind === 'extraccion') {
+    const lado = e.side === 'izq' ? 'izquierdo' : e.side === 'dcho' ? 'derecho' : 'los dos'
+    return `Sacaleches · ${lado}${e.ml ? ` · ${e.ml} ml` : ''}`
+  }
   if (e.kind === 'toma') {
-    if (e.side === 'bib') return `Biberón · ${e.ml ?? '?'} ml`
+    if (e.side === 'bib') return `Fórmula · ${e.ml ?? '?'} ml`
+    if (e.side === 'extraida') return `Leche de mamá · ${e.ml ?? '?'} ml${e.metodo ? ` · ${nombreMetodo[e.metodo]}` : ''}`
     const lado = e.side === 'izq' ? 'Pecho izquierdo' : 'Pecho derecho'
     return e.ended_at ? `${lado} · ${minutos(e.at, e.ended_at)} min` : lado
   }
