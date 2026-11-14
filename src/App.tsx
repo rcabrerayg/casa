@@ -8,13 +8,14 @@ import AltaBebe from './pantallas/AltaBebe'
 import Bebe from './pantallas/Bebe'
 import Hoy from './pantallas/Hoy'
 import Resumen from './pantallas/Resumen'
+import Super from './pantallas/Super'
 
 type Casa = { member: Member; bebe: Person | null; mama: string }
 
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [casa, setCasa] = useState<Casa | null | undefined>(undefined)
-  const [vista, setVista] = useState<'bebe' | 'resumen' | 'hoy'>('bebe')
+  const [vista, setVista] = useState<'bebe' | 'resumen' | 'super' | 'hoy'>('bebe')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -53,10 +54,12 @@ export default function App() {
     <div className={vista === 'bebe' ? 'noche' : undefined}>
       {vista === 'bebe' && <Bebe member={casa.member} bebe={casa.bebe} mama={casa.mama} />}
       {vista === 'resumen' && <Resumen bebe={casa.bebe} />}
+      {vista === 'super' && <Super member={casa.member} />}
       {vista === 'hoy' && <Hoy member={casa.member} />}
-      <nav className="pie-nav" aria-label="Secciones">
+      <nav className="pie-nav cuatro" aria-label="Secciones">
         <button aria-current={vista === 'bebe' ? 'page' : undefined} onClick={() => setVista('bebe')}>{casa.bebe.name}</button>
         <button aria-current={vista === 'resumen' ? 'page' : undefined} onClick={() => setVista('resumen')}>Resumen</button>
+        <button aria-current={vista === 'super' ? 'page' : undefined} onClick={() => setVista('super')}>Súper</button>
         <button aria-current={vista === 'hoy' ? 'page' : undefined} onClick={() => setVista('hoy')}>Casa y avisos</button>
       </nav>
     </div>

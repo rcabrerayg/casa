@@ -416,3 +416,6 @@ enabled = true
 
 [functions.recordatorios]
 verify_jwt = false
+
+[functions.precios]
+verify_jwt = false
