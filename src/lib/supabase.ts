@@ -7,5 +7,6 @@ export const supabase = createClient(url, key, {
   auth: { persistSession: true, autoRefreshToken: true },
 })
 
-export type Member = { user_id: string; household_id: string; display_name: string }
+export type Rol = 'mama' | 'papa' | 'otro'
+export type Member = { user_id: string; household_id: string; display_name: string; rol: Rol | null }
 export type Household = { id: string; name: string; invite_code: string; timezone: string }

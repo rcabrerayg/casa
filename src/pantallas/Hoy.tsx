@@ -33,7 +33,7 @@ export default function Hoy({ member }: { member: Member }) {
 
   useEffect(() => {
     supabase.from('households').select('id, name, invite_code, timezone').eq('id', member.household_id).single().then(({ data }) => setCasa(data))
-    supabase.from('members').select('user_id, household_id, display_name').eq('household_id', member.household_id).then(({ data }) => setMiembros(data ?? []))
+    supabase.from('members').select('user_id, household_id, display_name, rol').eq('household_id', member.household_id).then(({ data }) => setMiembros(data ?? []))
     pushState().then(setEstado)
   }, [member.household_id])
 

@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react'
-import { supabase, type Member } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 
-type Props = { userId: string; onListo: (m: Member) => void }
+type Props = { userId: string; onListo: () => void }
 
-export default function Hogar({ userId, onListo }: Props) {
+export default function Hogar({ onListo }: Props) {
   const [modo, setModo] = useState<'crear' | 'unirse'>('crear')
   const [nombre, setNombre] = useState('')
   const [codigo, setCodigo] = useState('')
@@ -23,7 +23,8 @@ export default function Hogar({ userId, onListo }: Props) {
       setError(error.message.includes('Código') ? 'Ese código no existe. Revísalo.' : error.message)
       return
     }
-    onListo({ user_id: userId, household_id: data as string, display_name: nombre.trim() })
+    void data
+    onListo()
   }
 
   return (

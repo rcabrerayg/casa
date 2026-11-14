@@ -1,13 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Member } from './lib/supabase'
+import type { Person } from './lib/bebe'
 import Acceso from './pantallas/Acceso'
 import Hogar from './pantallas/Hogar'
+import AltaBebe from './pantallas/AltaBebe'
+import Bebe from './pantallas/Bebe'
 import Hoy from './pantallas/Hoy'
+
+type Casa = { member: Member; bebe: Person | null; mama: string }
 
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
-  const [member, setMember] = useState<Member | null | undefined>(undefined)
+  const [casa, setCasa] = useState<Casa | null | undefined>(undefined)
+  const [vista, setVista] = useState<'bebe' | 'hoy'>('bebe')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -16,24 +22,39 @@ export default function App() {
   }, [])
 
   const userId = session?.user.id
-  useEffect(() => {
-    if (!userId) {
-      setMember(session === undefined ? undefined : null)
-      return
-    }
-    setMember(undefined)
-    supabase
+  const cargarCasa = useCallback(async () => {
+    if (!userId) return setCasa(null)
+    const { data: member } = await supabase
       .from('members')
-      .select('user_id, household_id, display_name')
+      .select('user_id, household_id, display_name, rol')
       .eq('user_id', userId)
       .maybeSingle()
-      .then(({ data }) => setMember(data ?? null))
-  }, [userId, session])
+    if (!member) return setCasa(null)
+    const [{ data: bebes }, { data: mamas }] = await Promise.all([
+      supabase.from('people').select('id, household_id, name, kind, birth_at').eq('kind', 'bebe').order('created_at').limit(1),
+      supabase.from('members').select('display_name').eq('rol', 'mama').limit(1),
+    ])
+    setCasa({ member: member as Member, bebe: (bebes?.[0] as Person) ?? null, mama: mamas?.[0]?.display_name ?? 'mamá' })
+  }, [userId])
 
-  if (session === undefined || (session && member === undefined)) {
-    return <main className="pantalla" aria-busy="true" />
-  }
+  useEffect(() => {
+    if (session === undefined) return
+    setCasa(undefined)
+    void cargarCasa()
+  }, [session, cargarCasa])
+
+  if (session === undefined || (session && casa === undefined)) return <main className="pantalla" aria-busy="true" />
   if (!session) return <Acceso />
-  if (!member) return <Hogar onListo={setMember} userId={session.user.id} />
-  return <Hoy member={member} />
+  if (!casa) return <Hogar userId={session.user.id} onListo={() => void cargarCasa()} />
+  if (!casa.member.rol || !casa.bebe) return <AltaBebe member={casa.member} bebe={casa.bebe} onListo={() => void cargarCasa()} />
+
+  return (
+    <div className={vista === 'bebe' ? 'noche' : undefined}>
+      {vista === 'bebe' ? <Bebe member={casa.member} bebe={casa.bebe} mama={casa.mama} /> : <Hoy member={casa.member} />}
+      <nav className="pie-nav" aria-label="Secciones">
+        <button aria-current={vista === 'bebe' ? 'page' : undefined} onClick={() => setVista('bebe')}>{casa.bebe.name}</button>
+        <button aria-current={vista === 'hoy' ? 'page' : undefined} onClick={() => setVista('hoy')}>Casa y avisos</button>
+      </nav>
+    </div>
+  )
 }
