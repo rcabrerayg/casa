@@ -98,3 +98,18 @@ a { color: var(--tinta); }
 .opciones { display: flex; gap: 8px; flex-wrap: wrap; }
 .opciones label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--linea); border-radius: 12px; background: var(--papel); cursor: pointer; }
 .opciones input { accent-color: var(--noche); }
+
+/* ——— Bebé · mejoras de claridad ——— */
+.seccion { margin-top: 6px !important; }
+.en-curso { background: var(--senal); color: #181818; border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 4px; }
+.en-curso .reloj { color: #181818; }
+.tecla.clara { background: rgba(255,255,255,.55); color: #181818; border-color: transparent; }
+.tecla.clara small, .tecla.oscura small { color: inherit; opacity: .7; }
+.tecla.oscura { background: #181818; color: #F2F2F0; border-color: #181818; }
+button.registro { width: 100%; background: none; border: none; color: inherit; cursor: pointer; border-top: none; min-height: 48px; }
+.editor { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0 14px 58px; }
+.chip.peligro { color: #FF6B6B; border-color: rgba(255,107,107,.5); }
+.hecho { position: fixed; left: 12px; right: 12px; bottom: calc(64px + env(safe-area-inset-bottom)); max-width: 456px; margin: 0 auto; background: #262626; border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); z-index: 10; animation: sube .18s ease-out; }
+.hecho .check { width: 24px; height: 24px; border-radius: 6px; background: var(--senal); color: #181818; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+@keyframes sube { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hecho { animation: none; } }

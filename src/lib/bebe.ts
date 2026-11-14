@@ -12,16 +12,37 @@ export type BabyEvent = {
   ml: number | null
   panal: 'pipi' | 'caca' | 'ambos' | null
   at: string
+  ended_at: string | null
   created_by: string
 }
 export type Person = { id: string; household_id: string; name: string; kind: 'adulto' | 'bebe'; birth_at: string | null }
 
-type Op =
+type Op = { k: string } & (
   | { op: 'insert'; row: BabyEvent }
   | { op: 'delete'; id: string }
-  | { op: 'update'; id: string; at: string }
+  | { op: 'update'; id: string; patch: Cambio }
+)
 
-const KEY = 'casa.outbox.v1'
+export type Cambio = Partial<Pick<BabyEvent, 'at' | 'ended_at'>>
+
+// Cola de cambios pendientes de subir. Solo se AÑADE al final y cada operación
+// se quita por su clave al confirmarse: así nada se pierde aunque se apunte
+// algo mientras otra subida está en marcha.
+const KEY = 'casa.outbox.v2'
+
+// Migra lo que quedara pendiente en la cola antigua (v1) a la nueva.
+try {
+  const viejo = localStorage.getItem('casa.outbox.v1')
+  if (viejo) {
+    const ops = (JSON.parse(viejo) as Array<Record<string, unknown>>).map((o) =>
+      o.op === 'update' && 'at' in o ? { op: 'update', id: o.id, patch: { at: o.at }, k: crypto.randomUUID() } : { ...o, k: crypto.randomUUID() },
+    )
+    localStorage.setItem(KEY, JSON.stringify([...ops, ...JSON.parse(localStorage.getItem(KEY) ?? '[]')]))
+    localStorage.removeItem('casa.outbox.v1')
+  }
+} catch {
+  /* sin almacenamiento: nada que migrar */
+}
 
 function leer(): Op[] {
   try {
@@ -34,55 +55,50 @@ function guardar(ops: Op[]) {
   localStorage.setItem(KEY, JSON.stringify(ops))
 }
 
-export function pendientes(): BabyEvent[] {
-  return leer().flatMap((o) => (o.op === 'insert' ? [o.row] : []))
+export const nPendientes = () => leer().length
+
+/** Lo del servidor con lo pendiente aplicado encima, en orden. */
+export function conPendientes(servidor: BabyEvent[]): BabyEvent[] {
+  const filas = new Map(servidor.map((e) => [e.id, e]))
+  for (const o of leer()) {
+    if (o.op === 'insert') filas.set(o.row.id, { ...(filas.get(o.row.id) ?? {}), ...o.row })
+    else if (o.op === 'delete') filas.delete(o.id)
+    else {
+      const f = filas.get(o.id)
+      if (f) filas.set(o.id, { ...f, ...o.patch })
+    }
+  }
+  return [...filas.values()].sort((a, b) => b.at.localeCompare(a.at))
 }
 
 let vaciando = false
-/** Sube lo pendiente. Lo que falla se queda para el siguiente intento. */
+/** Sube lo pendiente en orden. Lo que falla se queda para el siguiente intento. */
 export async function vaciarCola(): Promise<number> {
-  if (vaciando || !navigator.onLine) return leer().length
+  if (!navigator.onLine) return leer().length
+  if (vaciando) return 0 // ya hay una subida en marcha y recogerá lo nuevo
   vaciando = true
   try {
-    let ops = leer()
-    while (ops.length) {
-      const o = ops[0]
+    for (;;) {
+      const o = leer()[0]
+      if (!o) return 0
       const { error } =
         o.op === 'insert'
           ? await supabase.from('baby_events').upsert(o.row, { onConflict: 'id', ignoreDuplicates: true })
           : o.op === 'delete'
             ? await supabase.from('baby_events').delete().eq('id', o.id)
-            : await supabase.from('baby_events').update({ at: o.at }).eq('id', o.id)
-      if (error) break
-      ops = ops.slice(1)
-      guardar(ops)
+            : await supabase.from('baby_events').update(o.patch).eq('id', o.id)
+      if (error) return leer().length
+      guardar(leer().filter((x) => x.k !== o.k))
     }
-    return ops.length
   } finally {
     vaciando = false
   }
 }
 
-function encolar(op: Op) {
-  const ops = leer()
-  // Si se borra o ajusta algo que aún no se ha subido, se resuelve en la cola.
-  if (op.op === 'delete') {
-    const i = ops.findIndex((o) => o.op === 'insert' && o.row.id === op.id)
-    if (i >= 0) {
-      ops.splice(i, 1)
-      guardar(ops)
-      return
-    }
-  }
-  if (op.op === 'update') {
-    const ins = ops.find((o) => o.op === 'insert' && o.row.id === op.id)
-    if (ins && ins.op === 'insert') {
-      ins.row.at = op.at
-      guardar(ops)
-      return
-    }
-  }
-  guardar([...ops, op])
+type SinClave<T> = T extends unknown ? Omit<T, 'k'> : never
+function encolar(op: SinClave<Op>) {
+  guardar([...leer(), { ...op, k: crypto.randomUUID() } as Op])
+  void vaciarCola()
 }
 
 export function nuevo(base: Pick<BabyEvent, 'household_id' | 'person_id' | 'created_by'>, datos: Partial<BabyEvent> & { kind: Kind }): BabyEvent {
@@ -91,30 +107,28 @@ export function nuevo(base: Pick<BabyEvent, 'household_id' | 'person_id' | 'crea
     side: null,
     ml: null,
     panal: null,
+    ended_at: null,
     at: new Date().toISOString(),
     ...base,
     ...datos,
   }
   encolar({ op: 'insert', row })
-  void vaciarCola()
   return row
 }
 
 export function borrar(id: string) {
   encolar({ op: 'delete', id })
-  void vaciarCola()
 }
 
-export function moverHora(id: string, at: string) {
-  encolar({ op: 'update', id, at })
-  void vaciarCola()
+export function actualizar(id: string, patch: Cambio) {
+  encolar({ op: 'update', id, patch })
 }
 
 export async function cargar(personId: string, desdeHoras = 72): Promise<BabyEvent[]> {
   const desde = new Date(Date.now() - desdeHoras * 3600_000).toISOString()
   const { data } = await supabase
     .from('baby_events')
-    .select('id, household_id, person_id, kind, side, ml, panal, at, created_by')
+    .select('id, household_id, person_id, kind, side, ml, panal, at, ended_at, created_by')
     .eq('person_id', personId)
     .gte('at', desde)
     .order('at', { ascending: false })
@@ -152,8 +166,28 @@ export function edad(birthIso: string, ahora = Date.now()) {
   return `${Math.floor(d / 7)} semanas`
 }
 
+export function minutos(desde: string, hasta: string | number) {
+  const fin = typeof hasta === 'number' ? hasta : new Date(hasta).getTime()
+  return Math.max(0, Math.round((fin - new Date(desde).getTime()) / 60000))
+}
+
+export function cronometro(desde: string, ahora: number) {
+  const s = Math.max(0, Math.floor((ahora - new Date(desde).getTime()) / 1000))
+  const m = Math.floor(s / 60)
+  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** Toma de pecho empezada y sin terminar (máximo 90 min: después se da por olvidada). */
+export function enCurso(e: BabyEvent | undefined, ahora: number) {
+  return !!e && e.kind === 'toma' && e.side !== 'bib' && !e.ended_at && ahora - new Date(e.at).getTime() < 90 * 60000
+}
+
 export function etiqueta(e: BabyEvent) {
-  if (e.kind === 'toma') return e.side === 'bib' ? `Biberón · ${e.ml ?? '?'} ml` : e.side === 'izq' ? 'Pecho izquierdo' : 'Pecho derecho'
+  if (e.kind === 'toma') {
+    if (e.side === 'bib') return `Biberón · ${e.ml ?? '?'} ml`
+    const lado = e.side === 'izq' ? 'Pecho izquierdo' : 'Pecho derecho'
+    return e.ended_at ? `${lado} · ${minutos(e.at, e.ended_at)} min` : lado
+  }
   if (e.kind === 'panal') return e.panal === 'pipi' ? 'Pañal · pipí' : e.panal === 'caca' ? 'Pañal · caca' : 'Pañal · pipí y caca'
   return e.kind === 'dormido' ? 'Se durmió' : 'Se despertó'
 }
