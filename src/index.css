@@ -186,7 +186,7 @@ p.sp-nota { padding: 0; }
 .sp-ofertas { align-self: flex-start; padding: 6px 0 0; min-height: 36px; }
 
 /* ——— Menú de la semana ——— */
-.sm-segmento { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--tinta); border-radius: 12px; overflow: hidden; }
+.sm-segmento { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--tinta); border-radius: 12px; overflow: hidden; }
 .sm-segmento button { min-height: 44px; background: transparent; border: none; font-size: 14px; cursor: pointer; color: var(--tinta-2); }
 .sm-segmento button[aria-selected="true"] { background: var(--noche); color: #fff; font-weight: 500; }
 .sm-intro { margin: 0; line-height: 1.5; font-size: 15px; }
@@ -221,4 +221,14 @@ p.sp-nota { padding: 0; }
 .sm-pista { margin: 0; font-size: 13px; line-height: 1.5; }
 .sm-fijos { margin: 0; font-size: 14px; line-height: 1.5; }
 .sm-compra { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linea); }
+
+/* ——— Recetario ——— */
+.rc-cocinas .chip-claro { min-height: 34px; font-size: 12.5px; }
+.rc-cab { display: flex; align-items: center; gap: 4px; }
+.rc-cab .sm-plato-cab { flex: 1; min-width: 0; }
+.rc-coste { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; letter-spacing: .02em; text-transform: none; font-size: 13px; color: var(--tinta-2); }
+.rc-coste em { font-style: normal; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #B8461F; }
+.rc-fav { width: 44px; height: 44px; flex-shrink: 0; border: none; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--tinta-3); }
+.rc-fav.si { color: #B8461F; }
+.rc-elegir { padding: 12px; border: 1px solid var(--linea); border-radius: 12px; }
 @media (max-width: 380px) { .sm-detalle { padding-left: 0; } }
