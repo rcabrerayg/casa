@@ -55,7 +55,8 @@ const Eleccion = z.object({
     z.object({
       n: z.number().int().describe("Número del ingrediente"),
       producto: z.string().describe("Código del producto elegido (p. ej. «m3» o «h1»), o vacío si ninguno sirve"),
-      unidades: z.number().int().describe("Cuántos envases comprar para cubrir la cantidad"),
+      unidades: z.number().int().describe("Cuántos envases comprar para cubrir la cantidad (1 si es al peso)"),
+      kilos: z.number().describe("Solo si el producto se vende al peso (por kg): los kilos que hay que pedir, p. ej. 0.4 para 400 g o 0.05 para un trozo de jengibre. Si no es al peso, 0"),
       por_regla: z.boolean().describe("true si lo eliges por una preferencia de la casa y no por precio"),
     }),
   ),
@@ -155,7 +156,7 @@ async function elegir(claude: Anthropic, prefs: Prefs, plan: PlanT, porItem: Pro
   });
   const r = await claude.messages.parse({
     model: MODELO,
-    max_tokens: 8000,
+    max_tokens: 16000,
     system: SISTEMA,
     output_config: { format: zodOutputFormat(Eleccion) },
     messages: [{
@@ -164,7 +165,8 @@ async function elegir(claude: Anthropic, prefs: Prefs, plan: PlanT, porItem: Pro
 1) Las preferencias de compra de la casa: ${prefs.reglas.join(" ") || "ninguna"}
 2) Que sea de verdad ese ingrediente (no un derivado: «cebolla» no es «cebolla frita»).
 3) El más barato por kilo o litro con un envase razonable para la cantidad.
-Calcula las unidades para cubrir la cantidad. Si ninguno sirve, deja el producto vacío.
+Calcula las unidades para cubrir la cantidad. Si el producto se vende «al peso, por kg», su precio es por kilo: pon unidades 1 y en «kilos» lo que hay que pedir (no un kilo entero si hace falta poco).
+Si ninguno sirve, deja el producto vacío.
 
 ${bloques.join("\n\n")}`,
     }],
@@ -173,7 +175,9 @@ ${bloques.join("\n\n")}`,
   const compra = plan.compra.map((c, i) => {
     const e = r.parsed_output!.elecciones.find((x) => x.n === i);
     const p = e?.producto ? codigos.get(e.producto) : undefined;
-    const unidades = Math.max(1, Math.min(20, e?.unidades ?? 1));
+    const alPeso = !!p && /al peso|por kg/i.test(p.formato ?? "");
+    const kilos = alPeso ? Math.max(0.02, Math.min(10, e?.kilos || 1)) : 0;
+    const unidades = alPeso ? 1 : Math.max(1, Math.min(20, e?.unidades ?? 1));
     return {
       ingrediente: c.ingrediente,
       cantidad: c.cantidad,
@@ -181,7 +185,8 @@ ${bloques.join("\n\n")}`,
       producto: p ? { id: p.id, super: p.super, nombre: p.nombre, formato: p.formato, precio: Number(p.precio) } : null,
       unidades,
       por_regla: !!e?.por_regla,
-      coste: p ? Math.round(Number(p.precio) * unidades * 100) / 100 : 0,
+      kilos: alPeso ? kilos : undefined,
+      coste: p ? Math.round(Number(p.precio) * (alPeso ? kilos : unidades) * 100) / 100 : 0,
     };
   });
   return compra;
@@ -383,6 +388,55 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
   }
 }
 
+async function leerPrefs(db: SupabaseClient, hogar: string): Promise<Prefs> {
+  const { data: p } = await db.from("preferencias").select("*").eq("household_id", hogar).maybeSingle();
+  return {
+    presupuesto: Number(p?.presupuesto ?? 60),
+    personas: p?.personas ?? 2,
+    electrodomesticos: p?.electrodomesticos ?? [],
+    gustos: p?.gustos ?? [],
+    evitar: p?.evitar ?? "",
+    notas: p?.notas ?? "",
+    desayuno: p?.desayuno ?? "",
+    postcena: p?.postcena ?? "Un vaso de leche con algo dulce: galletas, magdalenas o similar.",
+    reglas: p?.reglas ?? ["La leche, siempre Hacendado de Mercadona.", "La carne, casi siempre de HiperDino."],
+  };
+}
+
+// La compra de los platos que hay ahora en el menú (tras cambiar alguno a mano).
+const SoloCompra = Plan.pick({ resumen: true, compra: true });
+
+async function rehacerCompra(db: SupabaseClient, claude: Anthropic, menuId: string, hogar: string) {
+  const { data: menu } = await db.from("menus").select("plan").eq("id", menuId).eq("household_id", hogar).eq("estado", "listo").maybeSingle();
+  const plan = menu?.plan as (PlanT & { compra_vieja?: boolean }) | null;
+  if (!plan) throw new Error("No encuentro ese menú");
+  const prefs = await leerPrefs(db, hogar);
+  const casa = await textoCasa(db, hogar);
+  const platos = plan.dias.map((d) => {
+    const p = (x: z.infer<typeof Plato>) =>
+      x.etiquetas?.includes("Fuera") ? `${x.titulo} (no se cocina: no compres nada)` : `${x.titulo}${x.ingredientes?.length ? `: ${x.ingredientes.join("; ")}` : " (escrito a mano: deduce los ingredientes de un plato así)"}`;
+    return `${d.dia}\n  Almuerzo: ${p(d.almuerzo)}\n  Cena: ${p(d.cena)}`;
+  }).join("\n");
+  const r = await claude.messages.parse({
+    model: MODELO,
+    max_tokens: 16000,
+    system: SISTEMA,
+    output_config: { format: zodOutputFormat(SoloCompra) },
+    messages: [{
+      role: "user",
+      content: [textoPrefs(prefs), casa, `Estos son los platos de la semana, ya decididos (no los cambies). Escribe el resumen de la semana (una frase) y haz la lista de la compra completa de la semana para ${prefs.personas} personas, juntando lo que se repite, incluidos desayunos y lo de después de cenar. Los días de sobras no suman compra.\n${platos}`].filter(Boolean).join("\n\n"),
+    }],
+  });
+  if (!r.parsed_output) throw new Error(`Claude no devolvió la compra (${r.stop_reason})`);
+  const nuevo = { ...plan, resumen: r.parsed_output.resumen, compra: r.parsed_output.compra };
+  const compra = await elegir(claude, prefs, nuevo, await candidatos(db, nuevo));
+  const total = compra.reduce((t, c) => t + c.coste, 0);
+  delete nuevo.compra_vieja;
+  const { compra: _, ...sinCompra } = nuevo;
+  await db.from("menus").update({ plan: sinCompra, compra, total: Math.round(total * 100) / 100, paso: null, error: null }).eq("id", menuId);
+  return { total };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST") return json({ error: "Método no permitido" }, 405);
@@ -412,18 +466,7 @@ Deno.serve(async (req) => {
     if (enCurso) return json({ error: "Ya se está preparando un menú." }, 429);
     if ((hoy ?? 0) >= 6) return json({ error: "Por hoy ya van 6 menús. Mañana más." }, 429);
 
-    const { data: p } = await db.from("preferencias").select("*").eq("household_id", hogar).maybeSingle();
-    const prefs: Prefs = {
-      presupuesto: Number(p?.presupuesto ?? 60),
-      personas: p?.personas ?? 2,
-      electrodomesticos: p?.electrodomesticos ?? [],
-      gustos: p?.gustos ?? [],
-      evitar: p?.evitar ?? "",
-      notas: p?.notas ?? "",
-      desayuno: p?.desayuno ?? "",
-      postcena: p?.postcena ?? "Un vaso de leche con algo dulce: galletas, magdalenas o similar.",
-      reglas: p?.reglas ?? ["La leche, siempre Hacendado de Mercadona.", "La carne, casi siempre de HiperDino."],
-    };
+    const prefs = await leerPrefs(db, hogar);
     const { data: menu, error } = await db.from("menus")
       .insert({ household_id: hogar, semana: lunesDeLaSemana(), creado_por: u.user.id, paso: "Empezando" })
       .select("id").single();
@@ -480,6 +523,21 @@ Si sobra para otro día, di cuánto guardar y cómo. En «consejo», el truco qu
     plato.receta = r.parsed_output;
     await db.from("menus").update({ plan }).eq("id", menu_id);
     return json(r.parsed_output);
+  }
+
+  if (cuerpo.accion === "compra") {
+    if (!claude) return sinClave();
+    const menuId = String(cuerpo.menu_id ?? "");
+    const { data: menu } = await db.from("menus").select("id, paso").eq("id", menuId).eq("household_id", hogar).eq("estado", "listo").maybeSingle();
+    if (!menu) return json({ error: "No encuentro ese menú" }, 404);
+    if (menu.paso) return json({ error: "Ya se está rehaciendo la compra." }, 429);
+    await db.from("menus").update({ paso: "Rehaciendo la compra", error: null }).eq("id", menuId);
+    // Tarda un par de minutos: se hace en segundo plano y la app se entera por realtime.
+    EdgeRuntime.waitUntil(rehacerCompra(db, claude, menuId, hogar).catch(async (e) => {
+      console.error("compra", e);
+      await db.from("menus").update({ paso: null, error: "No se pudo rehacer la compra. Prueba otra vez." }).eq("id", menuId);
+    }));
+    return json({ ok: true }, 202);
   }
 
   return json({ error: "Acción desconocida" }, 400);

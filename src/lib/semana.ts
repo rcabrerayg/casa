@@ -54,7 +54,7 @@ export type Menu = {
   estado: 'generando' | 'listo' | 'error'
   paso: string | null
   error: string | null
-  plan: { resumen: string; dias: Dia[] } | null
+  plan: { resumen: string; dias: Dia[]; compra_vieja?: boolean } | null
   compra: LineaCompra[] | null
   total: number | null
   created_at: string
@@ -132,6 +132,29 @@ async function llamar<T>(cuerpo: Record<string, unknown>): Promise<T> {
 }
 
 export const planear = () => llamar<{ id: string }>({ accion: 'planear' })
+/** Pone en el menú lo que escribáis, o «comemos fuera». */
+export async function ponerPlato(menuId: string, dia: number, momento: 'almuerzo' | 'cena', titulo: string, fuera = false) {
+  const { error } = await supabase.rpc('poner_plato', { p_menu: menuId, p_dia: dia, p_momento: momento, p_titulo: titulo, p_fuera: fuera })
+  if (error) throw new Error(error.message)
+}
+
+export type TituloReceta = { slug: string; titulo: string; momento: 'almuerzo' | 'cena' }
+let titulos: Promise<TituloReceta[]> | null = null
+/** Títulos del recetario para sugerir al cambiar un plato (se piden una vez). */
+export function titulosRecetario() {
+  titulos ??= Promise.resolve(supabase.from('recetario').select('slug, titulo, momento').order('titulo')).then(({ data, error }) => {
+    if (error) {
+      titulos = null
+      throw new Error(error.message)
+    }
+    return (data ?? []) as TituloReceta[]
+  })
+  return titulos
+}
+
+/** Rehace la compra (y el total) con los platos que hay ahora en el menú. */
+export const rehacerCompra = (menuId: string) => llamar<{ total: number }>({ accion: 'compra', menu_id: menuId })
+
 export const pedirReceta = (menuId: string, dia: number, momento: 'almuerzo' | 'cena') =>
   llamar<Receta>({ accion: 'receta', menu_id: menuId, dia, momento })
 

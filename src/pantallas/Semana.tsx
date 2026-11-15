@@ -2,10 +2,80 @@ import { Cargador } from '../componentes/Logo'
 import { useCallback, useEffect, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, nombreSemana, votar,
-  type Menu, type Plato, type Prefs, type Receta, type Voto,
+  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, nombreSemana, ponerPlato, rehacerCompra, titulosRecetario, votar,
+  type Menu, type Plato, type Prefs, type Receta, type TituloReceta, type Voto,
 } from '../lib/semana'
+import { ponerEnMenu } from '../lib/recetario'
 import { euros, NOMBRE, SUPERS } from '../lib/super'
+
+const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+/** Cambiar un plato: una receta del recetario, lo que escribáis, o «comemos fuera». */
+function CambiarPlato({ menuId, dia, momento, onListo }: { menuId: string; dia: number; momento: 'almuerzo' | 'cena'; onListo: () => void }) {
+  const [texto, setTexto] = useState('')
+  const [recetas, setRecetas] = useState<TituloReceta[]>([])
+  const [ocupado, setOcupado] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    titulosRecetario().then(setRecetas, (e: Error) => setError(e.message))
+  }, [])
+
+  const t = norm(texto.trim())
+  const sugeridas = t.length < 2 ? [] : recetas
+    .filter((r) => t.split(/\s+/).every((w) => norm(r.titulo).includes(w)))
+    .sort((a, b) => Number(b.momento === momento) - Number(a.momento === momento) || Number(norm(b.titulo).startsWith(t)) - Number(norm(a.titulo).startsWith(t)))
+    .slice(0, 5)
+
+  async function hacer(f: () => Promise<unknown>) {
+    setOcupado(true)
+    setError('')
+    try {
+      await f()
+      onListo()
+    } catch (e) {
+      setError((e as Error).message)
+      setOcupado(false)
+    }
+  }
+
+  const escrito = texto.trim()
+  return (
+    <div className="sm-cambiar">
+      <input
+        className="campo"
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        placeholder="Escribe el plato: macarrones, sushi…"
+        aria-label="Nuevo plato"
+        maxLength={120}
+        autoFocus
+      />
+      {sugeridas.length > 0 && (
+        <ul className="sm-sugeridas" aria-label="Del recetario">
+          {sugeridas.map((r) => (
+            <li key={r.slug}>
+              <button className="enlace" disabled={ocupado} onClick={() => void hacer(() => ponerEnMenu(menuId, dia, momento, r.slug))}>
+                {r.titulo}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="sm-votos">
+        {escrito.length >= 2 && (
+          <button className="chip activo" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menuId, dia, momento, escrito))}>
+            Poner «{escrito.length > 28 ? `${escrito.slice(0, 28)}…` : escrito}»
+          </button>
+        )}
+        <button className="chip" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menuId, dia, momento, escrito ? `Comemos fuera · ${escrito}` : 'Comemos fuera', true))}>
+          Comemos fuera
+        </button>
+      </div>
+      {error && <p className="error">{error}</p>}
+    </div>
+  )
+}
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 const fechaCorta = (iso: string, mas = 0) => {
@@ -112,7 +182,9 @@ type FilaProps = {
 
 function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
   const sobras = plato.etiquetas.includes('Sobras')
+  const fuera = plato.etiquetas.includes('Fuera')
   const [abierto, setAbierto] = useState(false)
+  const [cambiando, setCambiando] = useState(false)
   const [receta, setReceta] = useState<Receta | undefined>(plato.receta)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
@@ -136,17 +208,19 @@ function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
         <span className="sp-nombre">
           {plato.titulo}
           {voto && <span className={`sm-voto-marca${voto < 0 ? ' no' : ''}`}>{voto > 0 ? ' · os gustó' : ' · no repetir'}</span>}
-          <small>{[`${plato.minutos} min`, plato.aparato].filter(Boolean).join(' · ')}</small>
+          <small>{fuera ? 'fuera de casa' : [plato.minutos > 0 && `${plato.minutos} min`, plato.aparato].filter(Boolean).join(' · ') || 'escrito por vosotros'}</small>
         </span>
       </button>
       {abierto && (
         <div className="sm-detalle">
-          <ul>
-            {plato.ingredientes.map((i) => (
-              <li key={i}>{i}</li>
-            ))}
-          </ul>
-          {receta ? (
+          {plato.ingredientes.length > 0 && (
+            <ul>
+              {plato.ingredientes.map((i) => (
+                <li key={i}>{i}</li>
+              ))}
+            </ul>
+          )}
+          {fuera ? null : receta ? (
             <>
               <ol>
                 {receta.pasos.map((p, i) => (
@@ -161,7 +235,12 @@ function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
             </button>
           )}
           {error && <p className="error">{error}</p>}
-          {!sobras && (
+          {cambiando ? (
+            <CambiarPlato menuId={menuId} dia={dia} momento={momento} onListo={() => setCambiando(false)} />
+          ) : (
+            <button className="chip" onClick={() => setCambiando(true)}>Cambiar plato</button>
+          )}
+          {!sobras && !fuera && (
             <div className="sm-votos" role="group" aria-label="¿Qué tal este plato?">
               <button type="button" className={`chip${voto === 1 ? ' activo' : ''}`} aria-pressed={voto === 1} onClick={() => onVotar(plato.titulo, momento, voto === 1 ? null : 1)}>
                 Nos gustó
@@ -184,6 +263,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
   const [elegida, setElegida] = useState<string | null>(null)
   const [aviso, setAviso] = useState('')
   const [ocupado, setOcupado] = useState(false)
+  const [rehaciendo, setRehaciendo] = useState(false)
   const [verCompra, setVerCompra] = useState(false)
   const [votos, setVotos] = useState<Map<string, Voto>>(new Map())
 
@@ -224,6 +304,20 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
       setAviso((e as Error).message)
     } finally {
       setOcupado(false)
+    }
+  }
+
+  async function rehacer(m: Menu) {
+    setRehaciendo(true)
+    setAviso('')
+    try {
+      await rehacerCompra(m.id)
+      await recargar()
+    } catch (e) {
+      setAviso((e as Error).message)
+    } finally {
+      // A partir de aquí manda menu.paso (llega por realtime cuando termina).
+      setRehaciendo(false)
     }
   }
 
@@ -304,8 +398,25 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
                 {pasado ? `${euros((menu.total ?? 0) - prefs.presupuesto)} por encima` : `de ${euros(prefs.presupuesto)}`}
               </p>
             </div>
-            <button className="boton" onClick={() => void aLaLista(menu)} disabled={ocupado}>A la lista</button>
+            <button className="boton" onClick={() => void aLaLista(menu)} disabled={ocupado || rehaciendo || !!menu.paso || !!menu.plan!.compra_vieja}>A la lista</button>
           </section>
+          {menu.plan!.compra_vieja && (
+            <section className="sm-aviso-compra" role="status">
+              <p>
+                {menu.paso
+                  ? 'Rehaciendo la compra con los platos nuevos y los precios de hoy. Tarda un par de minutos; puedes seguir usando la app.'
+                  : 'Has cambiado platos: la compra y el total aún son los de antes.'}
+              </p>
+              {menu.error && !menu.paso && <p className="error">{menu.error}</p>}
+              {menu.paso ? (
+                <Cargador pantalla={false} />
+              ) : (
+                <button className="boton" onClick={() => void rehacer(menu)} disabled={rehaciendo}>
+                  {rehaciendo ? 'Un momento…' : 'Rehacer la compra'}
+                </button>
+              )}
+            </section>
+          )}
           <p className="cursiva sm-resumen-texto">{menu.plan!.resumen}</p>
           <p className="apagado sm-pista">Abre un plato y dime si os gustó o no lo repetiríais: lo tendré en cuenta en las próximas semanas.</p>
 
@@ -314,8 +425,8 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
               <h2 className="ceja">
                 {DIAS[i]} · {fechaCorta(menu.semana, i)}
               </h2>
-              <FilaPlato menuId={menu.id} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onVotar={cambiarVoto} />
-              <FilaPlato menuId={menu.id} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onVotar={cambiarVoto} />
+              <FilaPlato key={`a-${d.almuerzo.titulo}`} menuId={menu.id} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onVotar={cambiarVoto} />
+              <FilaPlato key={`c-${d.cena.titulo}`} menuId={menu.id} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onVotar={cambiarVoto} />
             </section>
           ))}
           <p className="apagado sm-fijos">
