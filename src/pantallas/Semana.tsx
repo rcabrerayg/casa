@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, ultimoMenu, votar,
+  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, votar,
   type Menu, type Plato, type Prefs, type Receta, type Voto,
 } from '../lib/semana'
 import { euros, NOMBRE, SUPERS } from '../lib/super'
@@ -11,6 +11,12 @@ const fechaCorta = (iso: string, mas = 0) => {
   const d = new Date(`${iso}T12:00:00Z`)
   d.setUTCDate(d.getUTCDate() + mas)
   return new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(d)
+}
+
+const fechaMas = (iso: string, dias: number) => {
+  const d = new Date(`${iso}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + dias)
+  return d.toISOString().slice(0, 10)
 }
 
 function Chips({ opciones, valor, onCambio }: { opciones: string[]; valor: string[]; onCambio: (v: string[]) => void }) {
@@ -179,7 +185,8 @@ function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
 export default function Semana({ member, onIrALista }: { member: Member; onIrALista: () => void }) {
   const [prefs, setPrefs] = useState<Prefs | null | undefined>(undefined)
   const [editando, setEditando] = useState(false)
-  const [menu, setMenu] = useState<Menu | null | undefined>(undefined)
+  const [menus, setMenus] = useState<Menu[] | undefined>(undefined)
+  const [elegida, setElegida] = useState<string | null>(null)
   const [aviso, setAviso] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const [verCompra, setVerCompra] = useState(false)
@@ -203,7 +210,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
     }
   }
 
-  const recargar = useCallback(async () => setMenu(await ultimoMenu()), [])
+  const recargar = useCallback(async () => setMenus(await menusVigentes()), [])
 
   useEffect(() => {
     void cargarPrefs().then(setPrefs)
@@ -216,6 +223,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
     setOcupado(true)
     try {
       await planear()
+      setElegida(null)
       await recargar()
     } catch (e) {
       setAviso((e as Error).message)
@@ -224,11 +232,10 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
     }
   }
 
-  async function aLaLista() {
-    if (!menu) return
+  async function aLaLista(m: Menu) {
     setOcupado(true)
     try {
-      await pasarALista(menu)
+      await pasarALista(m)
       onIrALista()
     } catch (e) {
       setAviso((e as Error).message)
@@ -237,7 +244,17 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
     }
   }
 
-  if (prefs === undefined || menu === undefined) return <div aria-busy="true" />
+  if (prefs === undefined || menus === undefined) return <div aria-busy="true" />
+
+  // Por defecto: lo que se acaba de pedir (o se está haciendo); si no, la semana en curso.
+  const esteLunes = lunesDeEstaSemana()
+  const reciente = [...menus].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
+  const porDefecto = reciente && (reciente.estado !== 'listo' || Date.now() - new Date(reciente.created_at).getTime() < 10 * 60_000)
+    ? reciente
+    : menus.find((m) => m.semana === esteLunes) ?? menus[0]
+  const menu: Menu | null = menus.find((m) => m.semana === elegida) ?? porDefecto ?? null
+  const nombreSemana = (s: string) =>
+    s === esteLunes ? 'Esta semana' : s === fechaMas(esteLunes, 7) ? 'La que viene' : `Semana del ${fechaCorta(s)}`
 
   if (!prefs || editando) {
     return (
@@ -265,6 +282,15 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
 
   return (
     <>
+      {menus.length > 1 && (
+        <div className="opciones-chips sm-semanas" role="group" aria-label="Semana">
+          {menus.map((m) => (
+            <button key={m.semana} type="button" className={`chip-claro${m.id === menu?.id ? ' activo' : ''}`} aria-pressed={m.id === menu?.id} onClick={() => setElegida(m.semana)}>
+              {nombreSemana(m.semana)}
+            </button>
+          ))}
+        </div>
+      )}
       {generando ? (
         <section className="sm-cocinando" aria-live="polite">
           <span className="sm-punto" aria-hidden="true" />
@@ -283,7 +309,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
                 {pasado ? `${euros((menu.total ?? 0) - prefs.presupuesto)} por encima` : `de ${euros(prefs.presupuesto)}`}
               </p>
             </div>
-            <button className="boton" onClick={() => void aLaLista()} disabled={ocupado}>A la lista</button>
+            <button className="boton" onClick={() => void aLaLista(menu)} disabled={ocupado}>A la lista</button>
           </section>
           <p className="cursiva sm-resumen-texto">{menu.plan!.resumen}</p>
           <p className="apagado sm-pista">Abre un plato y dime si os gustó o no lo repetiríais: lo tendré en cuenta en las próximas semanas.</p>

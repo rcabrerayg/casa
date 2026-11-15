@@ -34,6 +34,7 @@ const Plato = z.object({
   aparato: z.string().describe("Electrodoméstico principal que se usa"),
   etiquetas: z.array(z.string()),
   ingredientes: z.array(z.string()).describe("Con cantidad para las raciones, p. ej. «400 g de pechuga de pollo»"),
+  recetario: z.string().describe("El código [slug] del recetario si el plato sale de ahí tal cual, o vacío"),
 });
 const Plan = z.object({
   resumen: z.string().describe("Una frase sobre la semana"),
@@ -62,8 +63,8 @@ const Eleccion = z.object({
 
 const Receta = z.object({
   raciones: z.number().int(),
-  pasos: z.array(z.string()),
-  consejo: z.string().describe("Un truco corto, o vacío"),
+  pasos: z.array(z.string()).describe("Pasos de cocinero: técnica, señales de punto, tiempos y fuegos"),
+  consejo: z.string().describe("El truco clave del plato, o vacío"),
 });
 
 type Prefs = {
@@ -78,17 +79,28 @@ type Prefs = {
   reglas: string[];
 };
 
-const SISTEMA = `Eres el planificador de comidas de una pareja con un bebé recién nacido, con poco tiempo y poco sueño.
+const SISTEMA = `Eres el cocinero de casa de una pareja con un bebé recién nacido. A él le gusta cocinar y quiere comer bien gastando poco:
+platos caseros, sabrosos y algo elaborados, no genéricos ni de menú de hospital.
 Viven en Tenerife y compran en Mercadona e HiperDino: eso solo decide dónde se compra, no qué se cocina.
-Escribes en castellano de España, claro y sin adornos.
-Reglas fijas:
-- Recetas reales y caseras, hechas con ingredientes normales de supermercado.
-- Cocina variada de todas partes: casera española, mediterránea, italiana, mexicana, asiática, de Oriente Medio… Mezcla estilos a lo largo de la semana.
-- Cada plato, fiel a su estilo: no metas toques de otra cocina por obligación (nada de mojo en unos burritos ni gofio en una pasta). Un plato canario solo si es un plato canario de verdad, y como mucho uno a la semana salvo que pidan más.
-- Solo usas los electrodomésticos que tiene la casa.
-- Entre semana, platos rápidos o que se puedan dejar hechos; reaprovecha (lo que sobra de una cena puede ser el almuerzo del día siguiente).
-- Respeta lo que no quieren comer sin excepción.
-- La madre está dando leche materna: nada de pez espada, tiburón, atún rojo ni lucio (mercurio), y nada de alcohol en las recetas.
+Escribes en castellano de España, como un cocinero que explica a un amigo: claro, concreto, sin adornos.
+Cómo cocinas:
+- Técnica antes que ingredientes caros: dorar bien la carne (seca, sartén caliente, sin amontonar), desglasar el fondo, reposar la carne,
+  sofritos lentos, especias tostadas en grasa, salsas reducidas que napan, la pasta terminada en su salsa con agua de cocción.
+- Cortes baratos bien tratados (contramuslo, carrillera, morcillo, aguja, costilla, caballa) y legumbres con cariño.
+- Producto de temporada (otoño-invierno: calabaza, setas, coles, brócoli, puerro, boniato, cítricos, granada).
+- Cocina variada de todas partes: casera española, italiana, mexicana, asiática, india, de Oriente Medio, de bistró francés. Mezcla a lo largo de la semana.
+- Cada plato, fiel a su estilo: nada de toques de otra cocina por obligación (ni mojo en unos burritos ni gofio en una pasta). Un plato canario solo si es canario de verdad.
+Cómo planificas:
+- Almuerzo = la comida fuerte y cocinada del día. Cena = ligera y casi sin cocinar (hummus con palitos, picoteo, tostas, sándwiches, burritos, cremas).
+- Equilibrio semanal: 2 legumbres, 1-2 pescados (azul pequeño mejor), carne blanca y roja sin repetir proteína dos días seguidos, verdura todos los días.
+- Uno o dos «platos de cocinero» a la semana (un guiso largo, un risotto, una carne con salsa) en los días con más tiempo; entre semana, rápido o dejado hecho.
+- Reaprovecha: guisos y legumbres en cantidad doble para otro día o para congelar; lo que sobra de un almuerzo puede ser la cena (burritos, tostas).
+- Carnes caras (solomillo, filete de ternera, secreto) solo si caben en el presupuesto, idealmente si están de oferta.
+- Solo usas los electrodomésticos que tiene la casa. Respeta lo que no quieren comer sin excepción.
+Seguridad (la madre da el pecho):
+- Nada de pez espada, tiburón, atún rojo ni lucio (mercurio). Atún claro de lata, sí.
+- Huevo siempre bien cuajado; nada de mayonesa casera ni huevo crudo.
+- Sin alcohol en el plato final: vino o cerveza solo si cuecen largo hasta evaporarse (dilo) y con alternativa sin alcohol.
 - La casa siempre tiene sal, aceite de oliva, vinagre, pimienta, ajo en polvo y especias básicas: no las pongas en la compra.`;
 
 function textoPrefs(p: Prefs) {
@@ -177,20 +189,80 @@ ${bloques.join("\n\n")}`,
 
 type Compra = Awaited<ReturnType<typeof elegir>>;
 
-async function planear(claude: Anthropic, prefs: Prefs, recientes: string[], ajuste?: { plan: PlanT; compra: Compra; total: number }) {
+// ——— Recetario: una selección de platos de la casa como inspiración ———
+type RecetaLibro = {
+  id: string; slug: string; titulo: string; cocina: string; momento: "almuerzo" | "cena"; minutos: number; aparato: string;
+  etiquetas: string[]; ingredientes: string[]; pasos: string[]; truco: string; conservacion: string; sobras: boolean; congela: boolean;
+  coste: string; meses: number[] | null; raciones: number;
+};
+const norm = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
+const VACIAS = new Set(["con", "de", "del", "la", "las", "los", "el", "y", "a", "al", "en", "o", "un", "una", "casero", "casera"]);
+const claves = (t: string) => norm(t).split(/\s+/).filter((w) => w.length > 3 && !VACIAS.has(w));
+
+function seleccionar(libro: RecetaLibro[], o: {
+  favoritos: Set<string>; gustaron: string[]; noGustaron: string[]; recientes: string[]; notas: string; aparatos: string[]; mes: number;
+}) {
+  const parecido = (a: string, b: string) => {
+    const ka = new Set(claves(a)), kb = claves(b);
+    return kb.length > 0 && kb.filter((w) => ka.has(w)).length / Math.min(ka.size || 1, kb.length) >= 0.6;
+  };
+  const notas = norm(o.notas);
+  const tieneAparato = (a: string) => a === "Sin cocinar" || !o.aparatos.length || o.aparatos.includes(a);
+  const puntuado = libro
+    .filter((r) => tieneAparato(r.aparato))
+    .filter((r) => !o.noGustaron.some((t) => parecido(r.titulo, t)))
+    .map((r) => {
+      let p = Math.random() * 2;
+      if (o.favoritos.has(r.id)) p += 3;
+      if (o.gustaron.some((t) => parecido(r.titulo, t))) p += 3;
+      if (claves(r.titulo).slice(0, 2).some((w) => notas.includes(w))) p += 2;
+      if (r.meses && r.meses.includes(o.mes)) p += 1;
+      if (o.recientes.some((t) => parecido(r.titulo, t))) p -= 4;
+      return { r, p };
+    })
+    .sort((a, b) => b.p - a.p);
+  // Variedad: como mucho 3 por cocina en almuerzos.
+  const porCocina = new Map<string, number>();
+  const almuerzos: RecetaLibro[] = [];
+  for (const { r } of puntuado.filter((x) => x.r.momento === "almuerzo")) {
+    const n = porCocina.get(r.cocina) ?? 0;
+    if (n >= 3 || almuerzos.length >= 12) continue;
+    porCocina.set(r.cocina, n + 1);
+    almuerzos.push(r);
+  }
+  const cenas = puntuado.filter((x) => x.r.momento === "cena").slice(0, 8).map((x) => x.r);
+  return [...almuerzos, ...cenas];
+}
+
+function textoRecetario(sel: RecetaLibro[]) {
+  if (!sel.length) return "";
+  const linea = (r: RecetaLibro) =>
+    `- [${r.slug}] ${r.titulo} · ${r.cocina} · ${r.minutos} min · ${r.aparato}${r.coste === "oferta" ? " · solo si hay oferta" : ""}${r.sobras ? " · da para otro día" : ""}
+  Ingredientes (2 raciones): ${r.ingredientes.join("; ")}. Clave: ${r.truco}`;
+  return `Recetario de la casa (platos probados con buena técnica; úsalos como inspiración y repite los favoritos, pero no hace falta usarlos todos
+ni solo estos). Si pones un plato tal cual, copia su título y pon su código en «recetario» (y sus ingredientes, ajustando cantidades):
+ALMUERZOS
+${sel.filter((r) => r.momento === "almuerzo").map(linea).join("\n")}
+CENAS
+${sel.filter((r) => r.momento === "cena").map(linea).join("\n")}`;
+}
+
+async function planear(claude: Anthropic, prefs: Prefs, recientes: string[], recetario: string, ajuste?: { plan: PlanT; compra: Compra; total: number }) {
   const pedido = ajuste
     ? `Este plan se pasa del presupuesto: cuesta ${euros(ajuste.total)} y el tope es ${euros(prefs.presupuesto)}.
 Lo más caro de la compra: ${[...ajuste.compra].sort((a, b) => b.coste - a.coste).slice(0, 8).map((c) => `${c.ingrediente} ${euros(c.coste)}`).join("; ")}.
 Rehaz la semana para que quede por debajo, cambiando lo justo (ingredientes más baratos, más legumbre, huevo o pollo, reaprovechar).
 Plan anterior: ${JSON.stringify({ dias: ajuste.plan.dias.map((d) => ({ dia: d.dia, almuerzo: d.almuerzo.titulo, cena: d.cena.titulo })) })}`
     : `Planifica la semana: almuerzo y cena de lunes a domingo, y la lista de la compra completa de la semana (incluidos desayunos y lo de después de cenar).
-Que no se repitan platos dentro de la semana.${recientes.length ? ` Evita repetir estos de semanas anteriores: ${recientes.join(", ")}.` : ""}`;
+Que no se repitan platos dentro de la semana (salvo días de sobras, que se titulan «… (del lunes)»).
+Mete uno o dos platos de cocinero, al menos dos de los favoritos de la casa si caben en el presupuesto, y que se note la temporada (noviembre).
+${recientes.length ? `Evita repetir estos de semanas anteriores: ${recientes.join(", ")}.` : ""}`;
   const r = await claude.messages.parse({
     model: MODELO,
     max_tokens: 16000,
     system: SISTEMA,
     output_config: { format: zodOutputFormat(Plan) },
-    messages: [{ role: "user", content: `${textoPrefs(prefs)}\n\n${pedido}` }],
+    messages: [{ role: "user", content: [textoPrefs(prefs), recetario, pedido].filter(Boolean).join("\n\n") }],
   });
   if (!r.parsed_output) throw new Error(`Claude no devolvió el plan (${r.stop_reason})`);
   return r.parsed_output;
@@ -216,15 +288,26 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
     ].filter(Boolean).join("\n");
     if (aprendido) prefs = { ...prefs, notas: [prefs.notas, aprendido].filter(Boolean).join("\n") };
 
+    const [{ data: libro }, { data: favs }] = await Promise.all([
+      db.from("recetario").select("*"),
+      db.from("recetario_favoritos").select("receta_id").eq("household_id", householdId),
+    ]);
+    const mes = Number(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, month: "numeric" }).format(new Date()));
+    const recetario = textoRecetario(seleccionar((libro ?? []) as RecetaLibro[], {
+      favoritos: new Set((favs ?? []).map((f) => f.receta_id as string)),
+      gustaron: gustaron.map((g) => g.titulo), noGustaron: noGustaron.map((g) => g.titulo),
+      recientes, notas: prefs.notas, aparatos: prefs.electrodomesticos, mes,
+    }));
+
     await paso("Pensando los platos");
-    let plan = await planear(claude, prefs, recientes);
+    let plan = await planear(claude, prefs, recientes, recetario);
     await paso("Buscando precios");
     let compra = await elegir(claude, prefs, plan, await candidatos(db, plan));
     let total = compra.reduce((t, c) => t + c.coste, 0);
 
     if (total > prefs.presupuesto * 1.03) {
       await paso("Ajustando al presupuesto");
-      const plan2 = await planear(claude, prefs, recientes, { plan, compra, total });
+      const plan2 = await planear(claude, prefs, recientes, recetario, { plan, compra, total });
       const compra2 = await elegir(claude, prefs, plan2, await candidatos(db, plan2));
       const total2 = compra2.reduce((t, c) => t + c.coste, 0);
       if (total2 < total) [plan, compra, total] = [plan2, compra2, total2];
@@ -255,12 +338,13 @@ Deno.serve(async (req) => {
   const hogar = m.household_id as string;
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) return json({ error: "Falta conectar Claude: hay que guardar la clave de API en Supabase." }, 503);
-  const claude = new Anthropic({ apiKey, timeout: 120_000, maxRetries: 1 });
+  const sinClave = () => json({ error: "Falta conectar Claude: hay que guardar la clave de API en Supabase." }, 503);
+  const claude = apiKey ? new Anthropic({ apiKey, timeout: 120_000, maxRetries: 1 }) : null;
 
   const cuerpo = await req.json().catch(() => ({}));
 
   if (cuerpo.accion === "planear") {
+    if (!claude) return sinClave();
     // Freno de gasto: uno a la vez y como mucho 6 al día por casa.
     const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
     const [{ count: enCurso }, { count: hoy }] = await Promise.all([
@@ -299,6 +383,24 @@ Deno.serve(async (req) => {
     if (!plato) return json({ error: "No encuentro ese plato" }, 404);
     if (plato.receta) return json(plato.receta);
     const { data: p } = await db.from("preferencias").select("electrodomesticos, personas").eq("household_id", hogar).maybeSingle();
+    const personas = p?.personas ?? 2;
+    const { data: base } = plato.recetario
+      ? await db.from("recetario").select("*").eq("slug", plato.recetario).maybeSingle()
+      : { data: null };
+    const libro = base as RecetaLibro | null;
+    // Del recetario y para las mismas raciones: la receta ya está escrita, sin gastar en Claude.
+    const doble = plato.etiquetas.some((e) => /dejar hecho|sobras/i.test(e));
+    if (libro && libro.raciones === personas && !doble) {
+      const receta = {
+        raciones: libro.raciones,
+        pasos: libro.pasos,
+        consejo: [libro.truco, libro.conservacion].filter(Boolean).join(" "),
+      };
+      plato.receta = receta;
+      await db.from("menus").update({ plan }).eq("id", menu_id);
+      return json(receta);
+    }
+    if (!claude) return sinClave();
     const r = await claude.messages.parse({
       model: MODELO,
       max_tokens: 4000,
@@ -306,10 +408,14 @@ Deno.serve(async (req) => {
       output_config: { format: zodOutputFormat(Receta) },
       messages: [{
         role: "user",
-        content: `Escribe la receta de «${plato.titulo}» para ${p?.personas ?? 2} personas, con ${plato.aparato}.
+        content: `Escribe la receta de «${plato.titulo}» con estos ingredientes (ya calculados para lo que se cocina: ${personas} personas${doble ? ", más lo que se guarda para otro día" : ""}), con ${plato.aparato}.
 Electrodomésticos de la casa: ${(p?.electrodomesticos ?? []).join(", ") || "vitrocerámica y microondas"}.
 Ingredientes: ${plato.ingredientes.join("; ")}.
-Pasos cortos y concretos (tiempos y temperaturas), como mucho 7.`,
+${libro ? `Parte de esta receta probada y adáptala a las cantidades, sin perder su técnica:\n${libro.pasos.map((x, i) => `${i + 1}. ${x}`).join("\n")}\nTruco: ${libro.truco}\n` : ""}
+Escríbela como un buen cocinero que explica a un amigo: entre 4 y 7 pasos, cada uno con el porqué cuando importa
+(fuego, tiempo, temperatura y la señal de que está en su punto: «hasta que la cebolla esté dorada y blanda», «que la salsa nape la cuchara»).
+Incluye la técnica que hace bueno el plato: secar y dorar bien, desglasar, reposar la carne, sofrito lento, tostar especias, reducir, terminar la pasta en la salsa…
+Si sobra para otro día, di cuánto guardar y cómo. En «consejo», el truco que marca la diferencia.`,
       }],
     });
     if (!r.parsed_output) return json({ error: "No se pudo escribir la receta" }, 502);
