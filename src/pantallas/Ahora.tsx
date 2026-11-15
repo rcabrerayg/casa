@@ -123,7 +123,7 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
       <section className="tarjeta-noche" aria-label={bebe.name}>
         <div className="cabecera" style={{ minHeight: 0, alignItems: 'baseline' }}>
           <span className="ceja">{bebe.name}{bebe.birth_at ? ` · ${edad(bebe.birth_at, ahora)}` : ''}</span>
-          {prox && !actual && <span style={{ fontSize: 14, color: '#A3A3AB' }}>próxima hacia las {hora(prox)}</span>}
+          {prox && !actual && <span style={{ fontSize: 14, color: '#A3A3AB' }}>{Date.parse(prox) > ahora ? 'próxima hacia las' : 'ya le toca, desde las'} {hora(prox)}</span>}
         </div>
         <div className="ahora-toma">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -149,7 +149,7 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
           <span className="cuadro" aria-hidden="true" />
           <span className="cuerpo">
             <span style={{ fontWeight: 500 }}>
-              {esMama ? 'Tu sacaleches' : `Sacaleches de ${mama}`} · hace {hace(ultimaExt!.at, ahora)}
+              {esMama ? 'Tu sacaleches' : `Sacaleches de ${mama}`} · <span style={{ whiteSpace: 'nowrap' }}>hace {hace(ultimaExt!.at, ahora)}</span>
             </span>
             <span className="detalle">{esMama ? 'Cuando puedas, sin prisa.' : 'Buen momento para prepararle el sacaleches y agua.'}</span>
           </span>

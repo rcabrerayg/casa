@@ -178,12 +178,8 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
     setRebajas(null)
     setResultados([])
     entrada.current?.focus()
-    const alt = p ? await equivalente(p.id) : null
-    const { error } = await supabase.from('lista_items').insert({
-      texto,
-      producto_id: p?.id ?? null,
-      alternativa_id: alt?.id ?? null,
-    })
+    // Se guarda ya; la pareja del otro súper la busca `recargar` después (tarda unos segundos).
+    const { error } = await supabase.from('lista_items').insert({ texto, producto_id: p?.id ?? null })
     if (error) setAviso(error.message)
     await recargar()
   }
