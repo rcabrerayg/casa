@@ -1,3 +1,4 @@
+import { Cargador } from '../componentes/Logo'
 import { useEffect, useMemo, useState } from 'react'
 import { cargarRecetario, ingredientesALista, marcarFavorito, ponerEnMenu, type Precio, type Receta } from '../lib/recetario'
 import { menusVigentes, nombreSemana, type Menu } from '../lib/semana'
@@ -35,7 +36,7 @@ export default function Recetario({ onIrALista, onIrAlMenu }: { onIrALista: () =
       .filter((r) => !filtros.has('oferta') || datos.precios.get(r.slug)?.en_oferta)
       .filter((r) => !filtros.has('rapidas') || r.minutos <= 30)
       .filter((r) => !filtros.has('congela') || r.congela)
-      .sort((a, b) => Number(datos.favoritos.has(b.id)) - Number(datos.favoritos.has(a.id)) || a.titulo.localeCompare(b.titulo, 'es'))
+      .sort((a, b) => Number(!!t && norm(b.titulo).includes(t)) - Number(!!t && norm(a.titulo).includes(t)) || Number(datos.favoritos.has(b.id)) - Number(datos.favoritos.has(a.id)) || a.titulo.localeCompare(b.titulo, 'es'))
   }, [datos, q, momento, cocina, filtros])
 
   async function cambiarFavorito(r: Receta) {
@@ -60,7 +61,7 @@ export default function Recetario({ onIrALista, onIrAlMenu }: { onIrALista: () =
     setFiltros(n)
   }
 
-  if (!datos) return error ? <p className="error">{error}</p> : <div aria-busy="true" />
+  if (!datos) return error ? <p className="error">{error}</p> : <Cargador pantalla={false} />
 
   return (
     <>
@@ -217,7 +218,7 @@ function ElegirDia({ receta, onCancelar, onPuesto }: { receta: Receta; onCancela
     })
   }, [])
 
-  if (!menus) return <div aria-busy="true" />
+  if (!menus) return <Cargador pantalla={false} />
   if (!menus.length) {
     return (
       <p className="apagado sm-pista">

@@ -1,3 +1,4 @@
+import { Cargador } from '../componentes/Logo'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
@@ -58,6 +59,7 @@ function PasoMl({ etiqueta: et, valor, onCambio, nombre }: { etiqueta: string; v
 
 export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto }: Props) {
   const [servidor, setServidor] = useState<BabyEvent[]>([])
+  const [cargado, setCargado] = useState(false)
   const [ver, setVer] = useState(0)
   const [ahora, setAhora] = useState(Date.now())
   const [vista, setVista] = useState<'hoy' | 'pediatra'>('hoy')
@@ -84,10 +86,14 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
   }, [panelInicial, onPanelAbierto])
 
   const refrescar = useCallback(async () => {
-    const quedan = await vaciarCola()
-    setSinRed(!navigator.onLine || quedan > 0)
-    setServidor(await cargar(bebe.id))
-    setVer((v) => v + 1)
+    try {
+      const quedan = await vaciarCola()
+      setSinRed(!navigator.onLine || quedan > 0)
+      setServidor(await cargar(bebe.id))
+      setVer((v) => v + 1)
+    } finally {
+      setCargado(true)
+    }
   }, [bebe.id])
 
   useEffect(() => {
@@ -336,7 +342,8 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
               Últimas 24 h · {nTomas} {nTomas === 1 ? 'toma' : 'tomas'} · {nPanales} {nPanales === 1 ? 'pañal' : 'pañales'}
             </h2>
             <p className="nota" style={{ marginBottom: 6 }}>Toca un apunte para cambiar la hora o borrarlo.</p>
-            {h24.length === 0 && <p className="nota">Aún no hay nada apuntado.</p>}
+            {!cargado && h24.length === 0 && <Cargador pantalla={false} />}
+            {cargado && h24.length === 0 && <p className="nota">Aún no hay nada apuntado.</p>}
             {h24.map((e, i) => (
               <div key={e.id}>
                 {dia(e.at) !== hoyDia && (i === 0 || dia(h24[i - 1].at) === hoyDia) && <h3 className="ceja separador-dia">Ayer</h3>}

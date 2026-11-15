@@ -1,3 +1,4 @@
+import { Cargador } from '../componentes/Logo'
 import { useCallback, useEffect, useState } from 'react'
 import {
   anadirALista, borrarCosa, pendientesEnLista, cargarInventario, cargarSugerencias, cuanto, fijarCantidad, guardarCosa, LUGARES, reponer,
@@ -55,7 +56,7 @@ export default function Despensa({ onIrALista }: { onIrALista: () => void }) {
     }
   }
 
-  if (!cosas) return <div aria-busy="true" />
+  if (!cosas) return <Cargador pantalla={false} />
   const pronto = cosas.filter((c) => c.consumo_dia > 0 && (c.dias_restantes ?? 0) < 7)
   const toca = sugerencias.filter((s) => s.toca && !cosas.some((c) => c.producto_id && c.producto_id === s.producto_id))
 
