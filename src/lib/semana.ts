@@ -27,7 +27,7 @@ export const PREFS_INICIALES: Prefs = {
 }
 
 export const APARATOS = ['Vitrocerámica o inducción', 'Horno', 'Microondas', 'Freidora de aire', 'Olla a presión', 'Olla lenta', 'Robot de cocina', 'Batidora', 'Grill o sandwichera', 'Arrocera']
-export const GUSTOS = ['Rápido', 'Para dejar hecho', 'Canario', 'Legumbres', 'Pollo', 'Pescado', 'Pasta y arroz', 'Verduras', 'Guisos de cuchara', 'Ligero', 'Barato']
+export const GUSTOS = ['Rápido', 'Para dejar hecho', 'De todo un poco', 'Mediterráneo', 'Italiano', 'Mexicano', 'Asiático', 'Canario', 'Legumbres', 'Pollo', 'Pescado', 'Pasta y arroz', 'Verduras', 'Guisos de cuchara', 'Ligero', 'Barato']
 
 export type Plato = {
   titulo: string
