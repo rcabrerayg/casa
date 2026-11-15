@@ -8,6 +8,7 @@ import { mensajes } from '../lib/animo'
 import { lunesDeEstaSemana, menusVigentes, type Plato } from '../lib/semana'
 import { cargarLista, escucharLista, euros, NOMBRE, repartir, type Linea } from '../lib/super'
 import { IcoAjustes, IcoFlecha } from '../componentes/Iconos'
+import { Logo } from '../componentes/Logo'
 import type { Panel } from './Bebe'
 import type { VistaComida } from './Super'
 
@@ -111,7 +112,10 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
   return (
     <main className="pantalla">
       <div className="cabecera">
-        <p className="ceja">{c.fecha}</p>
+        <p className="ceja con-logo">
+          <Logo tam={28} />
+          {c.fecha}
+        </p>
         <button className="icono-boton" aria-label="Ajustes" onClick={onAjustes}>
           <IcoAjustes />
         </button>

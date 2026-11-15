@@ -129,6 +129,12 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
   const mlSacados = ext24.reduce((a, e) => a + (e.ml ?? 0), 0)
   const mlDados = h24.filter((e) => e.kind === 'toma' && e.side === 'extraida').reduce((a, e) => a + (e.ml ?? 0), 0)
   const tocaSacar = !!ultimaExt && minutos(ultimaExt.at, ahora) >= cada
+  // Al abrir el sacaleches se parte de lo que se sacó la última vez (en cualquier móvil).
+  const sacaAbierta = panel === 'saca'
+  const ultimoMlSaca = ultimaExt?.ml
+  useEffect(() => {
+    if (sacaAbierta && ultimoMlSaca) setMlSaca(ultimoMlSaca)
+  }, [sacaAbierta, ultimoMlSaca])
   const esMama = member.rol === 'mama'
   const hoyDia = dia(ahora)
   const panalesHoy = eventos.filter((e) => e.kind === 'panal' && dia(e.at) === hoyDia)
@@ -322,8 +328,9 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
             </h2>
             <p className="nota" style={{ marginBottom: 6 }}>Toca un apunte para cambiar la hora o borrarlo.</p>
             {h24.length === 0 && <p className="nota">Aún no hay nada apuntado.</p>}
-            {h24.map((e) => (
+            {h24.map((e, i) => (
               <div key={e.id}>
+                {dia(e.at) !== hoyDia && (i === 0 || dia(h24[i - 1].at) === hoyDia) && <h3 className="ceja separador-dia">Ayer</h3>}
                 <button
                   className="registro"
                   aria-expanded={abierto === e.id}
