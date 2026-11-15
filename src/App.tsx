@@ -11,6 +11,7 @@ import Bebe, { type Panel } from './pantallas/Bebe'
 import Super, { type VistaComida } from './pantallas/Super'
 import Ajustes from './pantallas/Ajustes'
 import { IcoAhora, IcoBiberon, IcoComida } from './componentes/Iconos'
+import { Cargador } from './componentes/Logo'
 
 type Casa = { member: Member; bebe: Person | null; mama: string }
 type Seccion = 'ahora' | 'dario' | 'comida'
@@ -59,7 +60,7 @@ export default function App() {
     window.scrollTo(0, 0)
   }, [seccion, ajustes])
 
-  if (session === undefined || (session && casa === undefined)) return <main className="pantalla" aria-busy="true" />
+  if (session === undefined || (session && casa === undefined)) return <Cargador />
   if (!session) return <Acceso />
   if (!casa) return <Hogar userId={session.user.id} onListo={() => void cargarCasa()} />
   if (!casa.member.rol || !casa.bebe) return <AltaBebe member={casa.member} bebe={casa.bebe} onListo={() => void cargarCasa()} />

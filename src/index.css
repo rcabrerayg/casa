@@ -193,6 +193,7 @@ a { color: var(--tinta); }
 .animo .enlace { color: var(--acento); text-decoration: none; padding: 4px 0; }
 
 .registro-lista { display: flex; flex-direction: column; }
+.separador-dia { margin: 0; padding: 18px 0 8px; border-top: 1px solid var(--linea-fuerte); }
 .registro { width: 100%; display: flex; gap: 14px; align-items: center; padding: 12px 0; min-height: 52px; border: none; border-top: 1px solid var(--linea); background: none; color: inherit; cursor: pointer; text-align: left; font-size: 16px; }
 .registro .t { width: 46px; flex-shrink: 0; font-family: var(--display); font-size: 15px; color: var(--tinta-3); font-variant-numeric: tabular-nums; }
 .registro .p { width: 7px; height: 7px; flex-shrink: 0; }
@@ -372,3 +373,21 @@ p.sp-nota { padding: 0; }
 }
 .segmentado.ajustado { grid-auto-columns: auto; flex-shrink: 0; }
 .segmentado.ajustado button { padding: 0 12px; }
+
+/* Resumen para el pediatra: una tarjeta por día, cabe en el móvil sin desplazar. */
+.dias-pediatra { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.dias-pediatra li { padding: 14px 0; border-top: 1px solid var(--linea); }
+.dias-pediatra h3 { margin: 0 0 6px; font-family: var(--display); font-size: 17px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.dias-pediatra dl { margin: 0; display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; font-size: 15px; }
+.dias-pediatra dt { color: var(--tinta-3); }
+.dias-pediatra dd { margin: 0; }
+
+/* Logo RDR: cabecera y cargador */
+.con-logo { display: inline-flex; align-items: center; gap: 10px; }
+.con-logo svg { flex-shrink: 0; border-radius: 7px; }
+.cargador { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: var(--fondo); }
+.cargador tspan { animation: respira 1.5s ease-in-out infinite; }
+.cargador tspan:nth-child(2) { animation-delay: .2s; }
+.cargador tspan:nth-child(3) { animation-delay: .4s; }
+@keyframes respira { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .cargador tspan { animation: none; } }

@@ -42,8 +42,21 @@ function porDia(eventos: BabyEvent[]): Fila[] {
     if (e.kind === 'peso' && e.gramos) f.peso = e.gramos
     filas.set(d, f)
   }
-  return [...filas.values()].sort((a, b) => b.dia.localeCompare(a.dia))
+  // Todos los días seguidos, del primero apuntado a hoy: un hueco sin apuntes no es lo mismo que «0 tomas».
+  const vacia = (d: string): Fila => ({ dia: d, tomas: 0, pecho: 0, pechoMin: 0, mlMama: 0, mlFormula: 0, pipis: 0, cacas: 0, extracciones: 0, mlSacados: 0, peso: null })
+  const dias = [...filas.keys()].sort()
+  if (!dias.length) return []
+  const todos: Fila[] = []
+  const hoy = dia(Date.now())
+  for (let t = Date.parse(`${dias[0]}T12:00:00Z`); ; t += 86400_000) {
+    const d = new Date(t).toISOString().slice(0, 10)
+    if (d > hoy) break
+    todos.push(filas.get(d) ?? vacia(d))
+  }
+  return todos.reverse()
 }
+
+const sinApuntes = (f: Fila) => !f.tomas && !f.pipis && !f.cacas && !f.extracciones && !f.peso
 
 const fecha = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
 
@@ -51,6 +64,10 @@ function texto(bebe: Person, filas: Fila[], ultimaCaca: BabyEvent | undefined, a
   const l = [`${bebe.name}${bebe.birth_at ? ` · ${edad(bebe.birth_at, ahora)}` : ''}`]
   if (ultimaCaca) l.push(`Última caca: ${cuando(ultimaCaca.at, ahora)}`)
   for (const f of filas) {
+    if (sinApuntes(f)) {
+      l.push(`${fecha(f.dia)}: sin apuntes`)
+      continue
+    }
     const partes = [
       `${f.tomas} tomas`,
       f.mlMama ? `${f.mlMama} ml leche de mamá` : '',
@@ -108,42 +125,49 @@ export default function Resumen({ bebe }: { bebe: Person }) {
         </div>
       </section>
 
-      <div className="tabla-scroll">
-        <table className="tabla">
-          <thead>
-            <tr>
-              <th scope="col">Día</th>
-              <th scope="col">Tomas</th>
-              <th scope="col">Leche mamá</th>
-              <th scope="col">Pipí</th>
-              <th scope="col">Caca</th>
-              <th scope="col">Fórmula</th>
-              <th scope="col">Pecho</th>
-              <th scope="col">Sacaleches</th>
-              <th scope="col">Peso</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filas.length === 0 && (
-              <tr><td colSpan={9} style={{ color: 'var(--tinta-2)' }}>Aún no hay nada apuntado.</td></tr>
+      {filas.length === 0 && <p className="nota">Aún no hay nada apuntado.</p>}
+      <ul className="dias-pediatra">
+        {filas.map((f, i) => (
+          <li key={f.dia}>
+            <h3>
+              {fecha(f.dia)}
+              {i === 0 && <span className="nota"> · hoy, en curso</span>}
+            </h3>
+            {sinApuntes(f) ? (
+              <p className="nota">Sin apuntes</p>
+            ) : (
+              <dl>
+                <dt>Tomas</dt>
+                <dd>
+                  {f.tomas}
+                  {[
+                    f.pecho ? `pecho ${f.pecho}${f.pechoMin ? ` · ${f.pechoMin} min` : ''}` : '',
+                    f.mlMama ? `mamá ${f.mlMama} ml` : '',
+                    f.mlFormula ? `fórmula ${f.mlFormula} ml` : '',
+                  ]
+                    .filter(Boolean)
+                    .map((t) => <span key={t} className="nota"> · {t}</span>)}
+                </dd>
+                <dt>Pañales</dt>
+                <dd>{f.pipis} pipí · {f.cacas} caca</dd>
+                {f.extracciones > 0 && (
+                  <>
+                    <dt>Sacaleches</dt>
+                    <dd>{f.extracciones} {f.extracciones === 1 ? 'vez' : 'veces'} · {f.mlSacados} ml</dd>
+                  </>
+                )}
+                {f.peso && (
+                  <>
+                    <dt>Peso</dt>
+                    <dd>{kilos(f.peso)}</dd>
+                  </>
+                )}
+              </dl>
             )}
-            {filas.map((f) => (
-              <tr key={f.dia}>
-                <th scope="row">{fecha(f.dia)}</th>
-                <td>{f.tomas}</td>
-                <td>{f.mlMama ? `${f.mlMama} ml` : '—'}</td>
-                <td>{f.pipis}</td>
-                <td>{f.cacas}</td>
-                <td>{f.mlFormula ? `${f.mlFormula} ml` : '—'}</td>
-                <td>{f.pecho ? `${f.pecho}${f.pechoMin ? ` · ${f.pechoMin}′` : ''}` : '—'}</td>
-                <td>{f.extracciones ? `${f.extracciones} · ${f.mlSacados} ml` : '—'}</td>
-                <td>{f.peso ? kilos(f.peso) : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="nota">Días naturales en hora de Canarias. El de hoy está en curso.</p>
+          </li>
+        ))}
+      </ul>
+      <p className="nota">Días naturales en hora de Canarias.</p>
 
       <button className="boton" onClick={compartir}>Compartir resumen</button>
       {copiado && <p role="status" className="nota">{copiado}</p>}
