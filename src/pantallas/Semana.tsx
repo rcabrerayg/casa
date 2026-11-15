@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, votar,
+  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, nombreSemana, votar,
   type Menu, type Plato, type Prefs, type Receta, type Voto,
 } from '../lib/semana'
 import { euros, NOMBRE, SUPERS } from '../lib/super'
@@ -11,12 +11,6 @@ const fechaCorta = (iso: string, mas = 0) => {
   const d = new Date(`${iso}T12:00:00Z`)
   d.setUTCDate(d.getUTCDate() + mas)
   return new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(d)
-}
-
-const fechaMas = (iso: string, dias: number) => {
-  const d = new Date(`${iso}T12:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + dias)
-  return d.toISOString().slice(0, 10)
 }
 
 function Chips({ opciones, valor, onCambio }: { opciones: string[]; valor: string[]; onCambio: (v: string[]) => void }) {
@@ -253,8 +247,6 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
     ? reciente
     : menus.find((m) => m.semana === esteLunes) ?? menus[0]
   const menu: Menu | null = menus.find((m) => m.semana === elegida) ?? porDefecto ?? null
-  const nombreSemana = (s: string) =>
-    s === esteLunes ? 'Esta semana' : s === fechaMas(esteLunes, 7) ? 'La que viene' : `Semana del ${fechaCorta(s)}`
 
   if (!prefs || editando) {
     return (
