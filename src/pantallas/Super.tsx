@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import Semana from './Semana'
 import Recetario from './Recetario'
-import Casa from './Casa'
+import { IcoVolver } from '../componentes/Iconos'
+import Despensa from './Casa'
 import { supabase } from '../lib/supabase'
 import {
   buscar, cargarLista, ofertas, equivalente, escucharLista, euros, NOMBRE, repartir, SUPERS, textoLista,
@@ -45,7 +46,7 @@ function Fila({ l, abierta, onAbrir, onCambio }: { l: Linea; abierta: boolean; o
           aria-label={comprado ? `Desmarcar ${item.texto}` : `Marcar ${item.texto} como comprado`}
           onClick={() => onCambio({ comprado_at: comprado ? null : new Date().toISOString() })}
         >
-          {comprado && '✓'}
+          <span>{comprado && '✓'}</span>
         </button>
         <button className="sp-cuerpo" onClick={onAbrir} aria-expanded={abierta}>
           <span className="sp-nombre">
@@ -65,14 +66,14 @@ function Fila({ l, abierta, onAbrir, onCambio }: { l: Linea; abierta: boolean; o
       {abierta && (
         <div className="sp-editor">
           <div className="sp-cantidad">
-            <button className="chip-claro" aria-label="Uno menos" disabled={item.cantidad <= 1} onClick={() => onCambio({ cantidad: item.cantidad - 1 })}>−</button>
+            <button className="chip" aria-label="Uno menos" disabled={item.cantidad <= 1} onClick={() => onCambio({ cantidad: item.cantidad - 1 })}>−</button>
             <span>{item.cantidad}</span>
-            <button className="chip-claro" aria-label="Uno más" onClick={() => onCambio({ cantidad: Math.min(99, item.cantidad + 1) })}>+</button>
+            <button className="chip" aria-label="Uno más" onClick={() => onCambio({ cantidad: Math.min(99, item.cantidad + 1) })}>+</button>
           </div>
           {SUPERS.map((s) => (
             <button
               key={s}
-              className={`chip-claro${item.super_fijo === s ? ' activo' : ''}`}
+              className={`chip${item.super_fijo === s ? ' activo' : ''}`}
               onClick={() => onCambio({ super_fijo: item.super_fijo === s ? null : s })}
               title={precios[s] ? precios[s]!.nombre : 'Sin precio en este súper'}
             >
@@ -80,16 +81,16 @@ function Fila({ l, abierta, onAbrir, onCambio }: { l: Linea; abierta: boolean; o
               {precios[s] ? ` ${euros(precios[s]!.precio)}` : ''}
             </button>
           ))}
-          <button className="chip-claro peligro" onClick={() => onCambio(null)}>Quitar</button>
+          <button className="chip peligro" onClick={() => onCambio(null)}>Quitar</button>
         </div>
       )}
     </div>
   )
 }
 
-type Vista = 'semana' | 'recetas' | 'casa' | 'lista'
+export type VistaComida = 'menu' | 'lista' | 'despensa'
 
-export default function Super({ member }: { member: Member }) {
+export default function Super({ member, vistaInicial, onVistaUsada }: { member: Member; vistaInicial?: VistaComida | null; onVistaUsada?: () => void }) {
   const [items, setItems] = useState<Item[]>([])
   const [productos, setProductos] = useState<Map<string, Producto>>(new Map())
   const [q, setQ] = useState('')
@@ -99,22 +100,31 @@ export default function Super({ member }: { member: Member }) {
   const [aviso, setAviso] = useState('')
   const [verComprados, setVerComprados] = useState(false)
   const [rebajas, setRebajas] = useState<Producto[] | null>(null)
-  const [vista, setVista] = useState<Vista>(() => {
+  const [vista, setVista] = useState<VistaComida>(() => {
     try {
       const v = localStorage.getItem('casa-comida')
-      return v === 'lista' || v === 'recetas' || v === 'casa' ? v : 'semana'
+      return v === 'lista' || v === 'despensa' ? v : 'menu'
     } catch {
-      return 'semana'
+      return 'menu'
     }
   })
-  const irA = (v: Vista) => {
+  const [recetario, setRecetario] = useState(false)
+  const irA = (v: VistaComida) => {
     setVista(v)
+    setRecetario(false)
+    window.scrollTo(0, 0)
     try {
       localStorage.setItem('casa-comida', v)
     } catch {
       /* sin almacenamiento */
     }
   }
+  useEffect(() => {
+    if (!vistaInicial) return
+    setVista(vistaInicial)
+    setRecetario(false)
+    onVistaUsada?.()
+  }, [vistaInicial, onVistaUsada])
   const entrada = useRef<HTMLInputElement>(null)
   const probados = useRef(new Set<string>())
 
@@ -230,37 +240,30 @@ export default function Super({ member }: { member: Member }) {
 
   return (
     <main className="pantalla">
-      <p className="ceja">Comida · Tenerife</p>
-      <h1 className="titular">
-        {vista === 'semana' ? (
-          <>
-            La semana, <span className="cursiva">resuelta.</span>
-          </>
-        ) : vista === 'casa' ? (
-          <>
-            Lo que hay <span className="cursiva">en casa.</span>
-          </>
-        ) : vista === 'recetas' ? (
-          <>
-            Cocina de <span className="cursiva">casa.</span>
-          </>
-        ) : (
-          <>
-            La compra, <span className="cursiva">repartida.</span>
-          </>
-        )}
-      </h1>
-      <div className="sm-segmento" role="tablist">
-        <button role="tab" aria-selected={vista === 'semana'} onClick={() => irA('semana')}>Menú</button>
-        <button role="tab" aria-selected={vista === 'recetas'} onClick={() => irA('recetas')}>Recetas</button>
-        <button role="tab" aria-selected={vista === 'casa'} onClick={() => irA('casa')}>Casa</button>
+      <h1 className="titulo">Comida</h1>
+      <div className="segmentado" role="tablist" aria-label="Apartados de comida">
+        <button role="tab" aria-selected={vista === 'menu'} onClick={() => irA('menu')}>Menú</button>
         <button role="tab" aria-selected={vista === 'lista'} onClick={() => irA('lista')}>
           Lista{pendientes.length ? ` · ${pendientes.length}` : ''}
         </button>
+        <button role="tab" aria-selected={vista === 'despensa'} onClick={() => irA('despensa')}>Despensa</button>
       </div>
-      {vista === 'semana' && <Semana member={member} onIrALista={() => irA('lista')} />}
-      {vista === 'casa' && <Casa onIrALista={() => irA('lista')} />}
-      {vista === 'recetas' && <Recetario onIrALista={() => irA('lista')} onIrAlMenu={() => irA('semana')} />}
+      {vista === 'menu' && !recetario && (
+        <>
+          <Semana member={member} onIrALista={() => irA('lista')} />
+          <button className="boton secundario ancho" onClick={() => { setRecetario(true); window.scrollTo(0, 0) }}>Buscar en el recetario</button>
+        </>
+      )}
+      {vista === 'menu' && recetario && (
+        <>
+          <button className="volver" onClick={() => setRecetario(false)}>
+            <IcoVolver />
+            Volver al menú
+          </button>
+          <Recetario onIrALista={() => irA('lista')} onIrAlMenu={() => setRecetario(false)} />
+        </>
+      )}
+      {vista === 'despensa' && <Despensa onIrALista={() => irA('lista')} />}
       {vista === 'lista' && (
       <>
 
@@ -323,10 +326,10 @@ export default function Super({ member }: { member: Member }) {
               <p className="cursiva sp-ahorro">ahorras {euros(resumen.ahorro)} repartiendo</p>
             )}
           </div>
-          <button className="boton" onClick={() => void compartir()}>Compartir</button>
+          <button className="boton" onClick={() => void compartir()}>Compartir lista</button>
         </section>
       ) : (
-        <p className="apagado" style={{ margin: 0, lineHeight: 1.5 }}>
+        <p className="apagado sm-intro">
           La lista está vacía. Escribe arriba y elige el producto: te digo dónde sale más barato.
         </p>
       )}

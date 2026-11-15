@@ -1,46 +1,87 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  actualizar, borrar, cargar, conPendientes, cronometro, cuando, dia, edad, kilos, enCurso, escuchar, esPecho, etiqueta, hace, hora, minutos, nuevo, textoMetodo, vaciarCola,
+  actualizar, borrar, cadaSaca, cargar, conPendientes, cronometro, cuando, dia, edad, kilos, enCurso, escuchar, esPecho, etiqueta, hace, hora,
+  minutos, nuevo, proxima, queFue, textoMetodo, vaciarCola, SACAR_CADA_MIN,
   type BabyEvent, type Cambio, type Metodo, type Person,
 } from '../lib/bebe'
 import { mensajes } from '../lib/animo'
+import Hoja from '../componentes/Hoja'
+import { IcoBiberon, IcoGota, IcoLuna, IcoPanal } from '../componentes/Iconos'
+import Resumen from './Resumen'
 
-type Props = { member: Member; bebe: Person; mama: string }
+export type Panel = 'comer' | 'panal' | 'sueno' | 'saca' | 'peso'
+type Props = { member: Member; bebe: Person; mama: string; panelInicial?: Panel | null; onPanelAbierto?: () => void }
 type Lado = 'izq' | 'dcho'
 
 const ML_KEY = 'casa.ml'
 const ML_FORMULA = 'casa.ml.formula'
 const ML_SACA = 'casa.ml.saca'
 const METODO = 'casa.metodo'
-const leerNum = (k: string, def: number) => Number(localStorage.getItem(k)) || def
+const leer = (k: string) => {
+  try {
+    return localStorage.getItem(k)
+  } catch {
+    return null
+  }
+}
+const escribir = (k: string, v: string) => {
+  try {
+    localStorage.setItem(k, v)
+  } catch {
+    /* sin almacenamiento: se usa el valor de esta sesión */
+  }
+}
+const leerNum = (k: string, def: number) => Number(leer(k)) || def
 const nombreLado = (l: Lado) => (l === 'izq' ? 'izquierdo' : 'derecho')
 const otro = (l: Lado): Lado => (l === 'izq' ? 'dcho' : 'izq')
+const haceTexto = (iso: string, ahora: number) => {
+  const h = hace(iso, ahora)
+  return h === 'Ahora' ? 'ahora mismo' : `hace ${h}`
+}
+const TITULOS: Record<Panel, string> = { comer: 'Comer', panal: 'Pañal', sueno: 'Sueño', saca: 'Sacaleches', peso: 'Peso' }
 
-/** Próxima toma aproximada: media entre las últimas tomas de las últimas 24 h. */
-function proxima(tomas: BabyEvent[], ahora: number) {
-  const t = tomas.filter((e) => ahora - new Date(e.at).getTime() < 86400_000).map((e) => new Date(e.at).getTime())
-  if (t.length < 3) return null
-  const huecos = t.slice(0, -1).map((v, i) => v - t[i + 1]).filter((h) => h > 20 * 60000)
-  if (huecos.length < 2) return null
-  const media = huecos.reduce((a, b) => a + b, 0) / huecos.length
-  return new Date(t[0] + media).toISOString()
+function PasoMl({ etiqueta: et, valor, onCambio, nombre }: { etiqueta: string; valor: number; onCambio: (d: number) => void; nombre: string }) {
+  return (
+    <div className="paso-ml">
+      <button aria-label={`Cinco mililitros menos ${nombre}`} onClick={() => onCambio(-5)}>−</button>
+      <div className="valor" aria-live="polite">
+        <span>{et}</span>
+        <b>
+          {valor} <small>ml</small>
+        </b>
+      </div>
+      <button aria-label={`Cinco mililitros más ${nombre}`} onClick={() => onCambio(5)}>+</button>
+    </div>
+  )
 }
 
-export default function Bebe({ member, bebe, mama }: Props) {
+export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto }: Props) {
   const [servidor, setServidor] = useState<BabyEvent[]>([])
   const [ver, setVer] = useState(0)
   const [ahora, setAhora] = useState(Date.now())
+  const [vista, setVista] = useState<'hoy' | 'pediatra'>('hoy')
+  const [panel, setPanel] = useState<Panel | null>(null)
   const [ml, setMl] = useState<number>(() => leerNum(ML_KEY, 15))
   const [mlFormula, setMlFormula] = useState<number>(() => leerNum(ML_FORMULA, 30))
   const [mlSaca, setMlSaca] = useState<number>(() => leerNum(ML_SACA, 20))
-  const [metodo, setMetodo] = useState<Metodo>(() => (localStorage.getItem(METODO) as Metodo) || 'jeringa')
+  const [metodo, setMetodo] = useState<Metodo>(() => (leer(METODO) as Metodo) || 'jeringa')
   const [verFormula, setVerFormula] = useState(false)
   const [aviso, setAviso] = useState<BabyEvent | null>(null)
   const [abierto, setAbierto] = useState<string | null>(null)
   const [confirmar, setConfirmar] = useState(false)
   const [iMsg, setIMsg] = useState(0)
   const [sinRed, setSinRed] = useState(!navigator.onLine)
+  const [gramos, setGramos] = useState('')
+  const [cada, setCada] = useState(SACAR_CADA_MIN)
+
+  // Si venimos de «Ahora» con un panel pedido, se abre.
+  useEffect(() => {
+    if (!panelInicial) return
+    setVista('hoy')
+    setPanel(panelInicial)
+    onPanelAbierto?.()
+  }, [panelInicial, onPanelAbierto])
 
   const refrescar = useCallback(async () => {
     const quedan = await vaciarCola()
@@ -51,6 +92,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
 
   useEffect(() => {
     void refrescar()
+    void cadaSaca(member.household_id).then(setCada)
     const parar = escuchar(bebe.id, () => void refrescar())
     const online = () => void refrescar()
     const offline = () => setSinRed(true)
@@ -64,9 +106,10 @@ export default function Bebe({ member, bebe, mama }: Props) {
       window.removeEventListener('offline', offline)
       document.removeEventListener('visibilitychange', visible)
     }
-  }, [bebe.id, refrescar])
+  }, [bebe.id, member.household_id, refrescar])
 
   // Lo del servidor con lo pendiente de subir aplicado encima.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const eventos = useMemo(() => conPendientes(servidor), [servidor, ver])
 
   const tomas = eventos.filter((e) => e.kind === 'toma')
@@ -85,8 +128,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
   const ext24 = extracciones.filter((e) => ahora - new Date(e.at).getTime() < 86400_000)
   const mlSacados = ext24.reduce((a, e) => a + (e.ml ?? 0), 0)
   const mlDados = h24.filter((e) => e.kind === 'toma' && e.side === 'extraida').reduce((a, e) => a + (e.ml ?? 0), 0)
-  const minDesdeExt = ultimaExt ? minutos(ultimaExt.at, ahora) : 0
-  const tocaSacar = !!ultimaExt && minDesdeExt >= 210
+  const tocaSacar = !!ultimaExt && minutos(ultimaExt.at, ahora) >= cada
   const esMama = member.rol === 'mama'
   const hoyDia = dia(ahora)
   const panalesHoy = eventos.filter((e) => e.kind === 'panal' && dia(e.at) === hoyDia)
@@ -94,7 +136,6 @@ export default function Bebe({ member, bebe, mama }: Props) {
   const cacasHoy = panalesHoy.filter((e) => e.panal !== 'pipi').length
   const ultimaCaca = eventos.find((e) => e.kind === 'panal' && e.panal !== 'pipi')
   const pesos = eventos.filter((e) => e.kind === 'peso')
-  const [gramos, setGramos] = useState('')
 
   // Cronómetro: cada segundo si hay toma en curso; si no, cada 30 s.
   useEffect(() => {
@@ -109,7 +150,7 @@ export default function Bebe({ member, bebe, mama }: Props) {
     return () => clearTimeout(t)
   }, [aviso])
 
-  const lista = mensajes({ esMama: member.rol === 'mama', mama, bebe: bebe.name, birthAt: bebe.birth_at, eventos, ahora })
+  const lista = mensajes({ esMama, mama, bebe: bebe.name, birthAt: bebe.birth_at, eventos, ahora })
   const msg = lista[iMsg % lista.length]
 
   const base = { household_id: member.household_id, person_id: bebe.id, created_by: member.user_id }
@@ -124,6 +165,8 @@ export default function Bebe({ member, bebe, mama }: Props) {
     if (actual && datos.kind === 'toma') terminar()
     const e = nuevo(base, datos)
     sincronizar()
+    setPanel(null)
+    setVerFormula(false)
     if (!esPecho(e)) setAviso(e)
     return e
   }
@@ -165,237 +208,273 @@ export default function Bebe({ member, bebe, mama }: Props) {
   function paso(valor: number, d: number, set: (n: number) => void, clave: string) {
     const v = Math.min(300, Math.max(5, valor + d))
     set(v)
-    localStorage.setItem(clave, String(v))
+    escribir(clave, String(v))
   }
 
   function elegirMetodo(m: Metodo) {
     setMetodo(m)
-    localStorage.setItem(METODO, m)
+    escribir(METODO, m)
   }
 
+  const cerrarPanel = useCallback(() => {
+    setPanel(null)
+    setVerFormula(false)
+  }, [])
+
   return (
-    <main className="pantalla" style={{ paddingBottom: aviso ? 150 : 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+    <main className="pantalla" style={aviso ? { paddingBottom: 170 } : undefined}>
+      <div className="cabecera">
         <p className="ceja">{bebe.name}{bebe.birth_at ? ` · ${edad(bebe.birth_at, ahora)}` : ''}</p>
-        {sinRed && <p className="ceja" role="status">Sin conexión · se guarda aquí</p>}
+        <div className="segmentado ajustado" role="tablist" aria-label="Qué ver">
+          <button role="tab" aria-selected={vista === 'hoy'} onClick={() => setVista('hoy')}>Hoy</button>
+          <button role="tab" aria-selected={vista === 'pediatra'} onClick={() => setVista('pediatra')}>Para el pediatra</button>
+        </div>
       </div>
+      {sinRed && <p className="sin-red" role="status">Sin conexión · se guarda en el móvil y se sube solo</p>}
 
-      {actual && (actual.side === 'izq' || actual.side === 'dcho') ? (
-        <section className="en-curso" aria-live="polite">
-          <span className="ceja" style={{ color: '#181818' }}>Dando el pecho {nombreLado(actual.side)}</span>
-          <span className="reloj" style={{ fontVariantNumeric: 'tabular-nums' }}>{cronometro(actual.at, ahora)}</span>
-          <span style={{ fontSize: 13 }}>Empezó a las {hora(actual.at)}</span>
-          <div className="rejilla r2" style={{ marginTop: 6 }}>
-            <button className="tecla clara" onClick={cambiarPecho}>
-              <small>Cambiar al</small>
-              <b>{nombreLado(otro(actual.side))}</b>
-            </button>
-            <button className="tecla oscura" onClick={() => terminar()}>
-              <small>Ya está</small>
-              <b>Terminar toma</b>
-            </button>
-          </div>
-        </section>
+      {vista === 'pediatra' ? (
+        <Resumen bebe={bebe} />
       ) : (
-        <section aria-label="Última toma" style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 14, borderBottom: '1px solid rgba(255,255,255,.12)' }}>
-          <span className="ceja">Desde la última toma</span>
-          <span className="reloj">{ultimaToma ? hace(ultimaToma.at, ahora) : '—'}</span>
-          <span style={{ fontSize: 13, color: '#A3A3AB' }}>
-            {ultimaToma ? `${etiqueta(ultimaToma)} · a las ${hora(ultimaToma.at)}` : 'Toca un pecho o «Leche de mamá» para apuntar la primera toma.'}
-          </span>
-          {(sugerido || prox) && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginTop: 4 }}>
-              {sugerido ? <span className="toca">le toca el {nombreLado(sugerido)}</span> : <span />}
-              {prox && <span style={{ fontSize: 13, color: '#A3A3AB' }}>próxima, hacia las {hora(prox)}</span>}
-            </div>
+        <>
+          {actual && (actual.side === 'izq' || actual.side === 'dcho') ? (
+            <section className="en-curso" aria-live="polite">
+              <span className="ceja">Dando el pecho {nombreLado(actual.side)}</span>
+              <span className="reloj">{cronometro(actual.at, ahora)}</span>
+              <span style={{ fontSize: 15 }}>Empezó a las {hora(actual.at)}</span>
+              <div className="dos" style={{ marginTop: 8 }}>
+                <button className="boton" onClick={cambiarPecho}>
+                  <small>Cambiar al</small>
+                  {nombreLado(otro(actual.side))}
+                </button>
+                <button className="boton oscuro" onClick={() => terminar()}>
+                  <small>Ya está</small>
+                  Terminar toma
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section className="estado-bebe" aria-label="Última toma">
+              <span className="reloj">{ultimaToma ? hace(ultimaToma.at, ahora) : '—'}</span>
+              <span className="que">
+                {ultimaToma ? `desde la última toma · ${queFue(ultimaToma)} a las ${hora(ultimaToma.at)}` : 'Toca «Comer» para apuntar la primera toma.'}
+              </span>
+              {(sugerido || prox) && (
+                <div className="pistas">
+                  {sugerido ? <span className="toca">le toca el {nombreLado(sugerido)}</span> : <span />}
+                  {prox && <span>próxima, hacia las {hora(prox)}</span>}
+                </div>
+              )}
+            </section>
           )}
-        </section>
-      )}
 
-      <section className="animo" aria-live="polite">
-        <span className="ceja">{msg.para}</span>
-        <p>{msg.texto}</p>
-        <button className="otro" onClick={() => setIMsg((i) => i + 1)}>Otro mensaje</button>
-      </section>
-
-      <h2 className="ceja seccion">Comer</h2>
-      {!actual && (
-        <div className="rejilla r2">
-          {(['izq', 'dcho'] as const).map((lado) => (
-            <button key={lado} className={`tecla pecho${sugerido === lado ? ' sugerida' : ''}`} onClick={() => apuntar({ kind: 'toma', side: lado })}>
-              <span className="marca">Le toca</span>
-              <span style={{ display: 'flex', flexDirection: 'column' }}>
-                <b style={{ fontSize: 20 }}>Pecho</b>
-                <span className="lado">{nombreLado(lado)}</span>
-                <small style={{ marginTop: 6, color: 'inherit', opacity: 0.7 }}>toca para empezar</small>
+          <div className="acciones-bebe">
+            <button className="accion principal" onClick={() => setPanel('comer')}>
+              <IcoBiberon size={26} />
+              <span>
+                <b>Comer</b>
+                <br />
+                <small>{ultimaToma ? haceTexto(ultimaToma.at, ahora) : 'apunta la primera'}</small>
               </span>
             </button>
-          ))}
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 10 }}>
-        <button className="tecla estrecha" aria-label="Cinco mililitros menos" onClick={() => paso(ml, -5, setMl, ML_KEY)}>−</button>
-        <button className="tecla" style={{ flexGrow: 1, gap: 2 }} onClick={() => apuntar({ kind: 'toma', side: 'extraida', ml, metodo })}>
-          <small>Leche de mamá · {textoMetodo(metodo)}</small>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-            <span style={{ fontFamily: 'var(--display)', fontSize: 28 }}>{ml}</span>
-            <small>ml</small>
-          </span>
-        </button>
-        <button className="tecla estrecha" aria-label="Cinco mililitros más" onClick={() => paso(ml, 5, setMl, ML_KEY)}>+</button>
-      </div>
-      <div className="segmentos" role="radiogroup" aria-label="Cómo se la damos">
-        {(['jeringa', 'biberon', 'vasito'] as const).map((m) => (
-          <button key={m} role="radio" aria-checked={metodo === m} className={metodo === m ? 'activo' : undefined} onClick={() => elegirMetodo(m)}>
-            {textoMetodo(m)}
-          </button>
-        ))}
-      </div>
-      {verFormula ? (
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="tecla estrecha" aria-label="Cinco mililitros menos de fórmula" onClick={() => paso(mlFormula, -5, setMlFormula, ML_FORMULA)}>−</button>
-          <button className="tecla" style={{ flexGrow: 1, flexDirection: 'row', alignItems: 'baseline', gap: 10 }} onClick={() => apuntar({ kind: 'toma', side: 'bib', ml: mlFormula, metodo })}>
-            <b>Fórmula</b>
-            <span style={{ fontFamily: 'var(--display)', fontSize: 24 }}>{mlFormula}</span>
-            <small>ml</small>
-          </button>
-          <button className="tecla estrecha" aria-label="Cinco mililitros más de fórmula" onClick={() => paso(mlFormula, 5, setMlFormula, ML_FORMULA)}>+</button>
-        </div>
-      ) : (
-        <button className="enlace" style={{ alignSelf: 'flex-start', minHeight: 36, padding: 0 }} onClick={() => setVerFormula(true)}>Apuntar fórmula</button>
-      )}
-
-      <h2 className="ceja seccion">Sacaleches{esMama ? '' : ` · ${mama}`}</h2>
-      <section className="saca">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: 14 }}>
-            {ultimaExt
-              ? `Última ${hace(ultimaExt.at, ahora) === 'Ahora' ? 'ahora mismo' : `hace ${hace(ultimaExt.at, ahora)}`} · ${ext24.length} en 24 h`
-              : 'Aún no hay extracciones apuntadas'}
-          </span>
-          {mlSacados > 0 && <span style={{ fontSize: 13, color: '#A3A3AB' }}>24 h: {mlSacados} ml sacados · {mlDados} ml dados a {bebe.name}</span>}
-        </div>
-        {tocaSacar && (
-          <p className="recuerdo">
-            {esMama
-              ? `Han pasado ${hace(ultimaExt!.at, ahora)} desde la última. Cuando puedas, sin prisa.`
-              : `Han pasado ${hace(ultimaExt!.at, ahora)} desde la última extracción. Buen momento para prepararle el sacaleches y un vaso de agua a ${mama}.`}
-          </p>
-        )}
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="tecla estrecha" aria-label="Cinco mililitros menos sacados" onClick={() => paso(mlSaca, -5, setMlSaca, ML_SACA)}>−</button>
-          <div className="tecla" style={{ flexGrow: 1, cursor: 'default' }}>
-            <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontFamily: 'var(--display)', fontSize: 28 }}>{mlSaca}</span>
-              <small>ml sacados</small>
-            </span>
+            <button className="accion" onClick={() => setPanel('panal')}>
+              <IcoPanal />
+              <span>
+                <b>Pañal</b>
+                <br />
+                <small>{ultimaCaca ? `última caca ${haceTexto(ultimaCaca.at, ahora)}` : `${panalesHoy.length} hoy`}</small>
+              </span>
+            </button>
+            <button className="accion" onClick={() => setPanel('sueno')}>
+              <IcoLuna />
+              <span>
+                <b>Sueño</b>
+                <br />
+                <small>{sueno ? `${dormido ? 'duerme' : 'despierto'} · ${hace(sueno.at, ahora)}` : 'sin datos'}</small>
+              </span>
+            </button>
+            <button className="accion" onClick={() => setPanel('saca')}>
+              <span className="icono">
+                <IcoGota />
+                {tocaSacar && <span className="cuadro" aria-label="Ya toca" />}
+              </span>
+              <span>
+                <b>Sacaleches</b>
+                <br />
+                <small>{ultimaExt ? `${esMama ? 'tú' : mama} · ${haceTexto(ultimaExt.at, ahora)}` : esMama ? 'apunta la primera' : mama}</small>
+              </span>
+            </button>
           </div>
-          <button className="tecla estrecha" aria-label="Cinco mililitros más sacados" onClick={() => paso(mlSaca, 5, setMlSaca, ML_SACA)}>+</button>
-        </div>
-        <div className="rejilla r3">
-          <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'izq', ml: mlSaca })}><small>Pecho</small><b>izquierdo</b></button>
-          <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'dcho', ml: mlSaca })}><small>Pecho</small><b>derecho</b></button>
-          <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'ambos', ml: mlSaca })}><small>Pecho</small><b>los dos</b></button>
-        </div>
-      </section>
 
-      <h2 className="ceja seccion">Pañal</h2>
-      <p style={{ margin: '-4px 0 0', fontSize: 13, color: '#A3A3AB' }}>
-        Hoy: {pipisHoy} con pipí · {cacasHoy} con caca
-        {ultimaCaca ? ` · última caca ${cuando(ultimaCaca.at, ahora)} (hace ${hace(ultimaCaca.at, ahora)})` : ''}
-      </p>
-      <div className="rejilla r3">
-        <button className="tecla" onClick={() => apuntar({ kind: 'panal', panal: 'pipi' })}><b>Pipí</b></button>
-        <button className="tecla" onClick={() => apuntar({ kind: 'panal', panal: 'caca' })}><b>Caca</b></button>
-        <button className="tecla" onClick={() => apuntar({ kind: 'panal', panal: 'ambos' })}><b>Las dos</b></button>
-      </div>
+          <div className="chips">
+            <button className="chip" onClick={() => setPanel('peso')}>Apuntar peso</button>
+            {pesos[0]?.gramos ? <span className="nota">Último: {kilos(pesos[0].gramos)} · {cuando(pesos[0].at, ahora)}</span> : null}
+          </div>
 
-      <h2 className="ceja seccion">Sueño</h2>
-      <button className="tecla" style={{ minHeight: 72, flexDirection: 'row', justifyContent: 'space-between', padding: '12px 18px' }} onClick={() => apuntar({ kind: dormido ? 'despierto' : 'dormido' })}>
-        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, textAlign: 'left' }}>
-          <small>{sueno ? `${dormido ? 'Duerme' : 'Despierto'} desde las ${hora(sueno.at)} · ${hace(sueno.at, ahora)}` : 'Sin datos de sueño'}</small>
-          <b>{dormido ? 'Se ha despertado' : 'Se ha dormido'}</b>
-        </span>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" /></svg>
-      </button>
+          <section className="animo" aria-live="polite">
+            <p>{msg.texto}</p>
+            <button className="enlace" onClick={() => setIMsg((i) => i + 1)}>Otro mensaje</button>
+          </section>
 
-      <h2 className="ceja seccion">Peso</h2>
-      <form
-        style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}
-        onSubmit={(ev) => {
-          ev.preventDefault()
-          const g = Math.round(Number(gramos.replace(',', '.')) * (gramos.includes(',') || gramos.includes('.') ? 1000 : 1))
-          if (g >= 1000 && g <= 15000) {
-            apuntar({ kind: 'peso', gramos: g })
-            setGramos('')
-          }
-        }}
-      >
-        <label htmlFor="gramos" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Peso en gramos o en kilos</label>
-        <input
-          id="gramos"
-          inputMode="decimal"
-          placeholder="3250 g o 3,25 kg"
-          value={gramos}
-          onChange={(ev) => setGramos(ev.target.value)}
-          style={{ flexGrow: 1, minWidth: 0, height: 56, borderRadius: 16, border: '1px solid rgba(255,255,255,.12)', background: '#1E1E1E', color: '#F2F2F0', padding: '0 16px', fontSize: 17 }}
-        />
-        <button className="tecla" type="submit" style={{ minHeight: 56, padding: '0 18px' }}><b>Apuntar</b></button>
-      </form>
-      {pesos.length > 0 && (
-        <p style={{ margin: 0, fontSize: 13, color: '#A3A3AB' }}>
-          Último: {kilos(pesos[0].gramos ?? 0)} · {cuando(pesos[0].at, ahora)}
-          {pesos[1] ? ` · ${(pesos[0].gramos ?? 0) - (pesos[1].gramos ?? 0) >= 0 ? '+' : ''}${(pesos[0].gramos ?? 0) - (pesos[1].gramos ?? 0)} g desde el anterior` : ''}
-        </p>
-      )}
-
-      <section style={{ display: 'flex', flexDirection: 'column', marginTop: 10 }}>
-        <h2 className="ceja" style={{ paddingBottom: 4 }}>
-          Últimas 24 h · {nTomas} {nTomas === 1 ? 'toma' : 'tomas'} · {nPanales} {nPanales === 1 ? 'pañal' : 'pañales'}
-        </h2>
-        <p style={{ margin: '0 0 6px', fontSize: 12, color: '#A3A3AB' }}>Toca un apunte para cambiar la hora o borrarlo.</p>
-        {h24.length === 0 && <p style={{ fontSize: 14, color: '#A3A3AB' }}>Aún no hay nada apuntado.</p>}
-        {h24.map((e) => (
-          <div key={e.id} style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
-            <button
-              className="registro"
-              aria-expanded={abierto === e.id}
-              onClick={() => {
-                setAbierto(abierto === e.id ? null : e.id)
-                setConfirmar(false)
-              }}
-            >
-              <span className="t">{hora(e.at)}</span>
-              <span
-                className="p"
-                aria-hidden="true"
-                style={{
-                  background: e.kind === 'toma' ? '#F2F2F0' : e.kind === 'panal' ? '#6B6B73' : e.kind === 'extraccion' ? 'var(--senal)' : e.kind === 'peso' ? '#7FD6B0' : 'transparent',
-                  border: e.kind === 'dormido' || e.kind === 'despierto' ? '1px solid #A3A3AB' : 'none',
-                }}
-              />
-              <span style={{ fontSize: 15, flexGrow: 1, textAlign: 'left' }}>
-                {etiqueta(e)}
-                {enCurso(e, ahora) ? ` · en curso (${minutos(e.at, ahora)} min)` : ''}
-              </span>
-            </button>
-            {abierto === e.id && (
-              <div className="editor">
-                <span style={{ fontSize: 13, color: '#A3A3AB', flexBasis: '100%' }}>Mover la hora</span>
-                <button className="chip" onClick={() => mover(e, -15)}>−15 min</button>
-                <button className="chip" onClick={() => mover(e, -5)}>−5 min</button>
-                <button className="chip" onClick={() => mover(e, 5)}>+5 min</button>
-                <span style={{ flexGrow: 1 }} />
-                {confirmar ? (
-                  <button className="chip peligro" onClick={() => quitar(e)}>Sí, borrar</button>
-                ) : (
-                  <button className="chip" onClick={() => setConfirmar(true)}>Borrar</button>
+          <section className="registro-lista">
+            <h2 className="ceja" style={{ paddingBottom: 4 }}>
+              Últimas 24 h · {nTomas} {nTomas === 1 ? 'toma' : 'tomas'} · {nPanales} {nPanales === 1 ? 'pañal' : 'pañales'}
+            </h2>
+            <p className="nota" style={{ marginBottom: 6 }}>Toca un apunte para cambiar la hora o borrarlo.</p>
+            {h24.length === 0 && <p className="nota">Aún no hay nada apuntado.</p>}
+            {h24.map((e) => (
+              <div key={e.id}>
+                <button
+                  className="registro"
+                  aria-expanded={abierto === e.id}
+                  onClick={() => {
+                    setAbierto(abierto === e.id ? null : e.id)
+                    setConfirmar(false)
+                  }}
+                >
+                  <span className="t">{hora(e.at)}</span>
+                  <span
+                    className="p"
+                    aria-hidden="true"
+                    style={{
+                      background: e.kind === 'toma' ? 'var(--tinta)' : e.kind === 'panal' ? 'var(--tinta-3)' : e.kind === 'extraccion' ? 'var(--senal)' : e.kind === 'peso' ? '#7FD6B0' : 'transparent',
+                      border: e.kind === 'dormido' || e.kind === 'despierto' ? '1px solid var(--tinta-3)' : 'none',
+                    }}
+                  />
+                  <span style={{ flexGrow: 1 }}>
+                    {etiqueta(e)}
+                    {enCurso(e, ahora) ? ` · en curso (${minutos(e.at, ahora)} min)` : ''}
+                  </span>
+                </button>
+                {abierto === e.id && (
+                  <div className="editor">
+                    <span className="nota">Mover la hora</span>
+                    <button className="chip" onClick={() => mover(e, -15)}>−15 min</button>
+                    <button className="chip" onClick={() => mover(e, -5)}>−5 min</button>
+                    <button className="chip" onClick={() => mover(e, 5)}>+5 min</button>
+                    <span style={{ flexGrow: 1 }} />
+                    {confirmar ? (
+                      <button className="chip peligro" onClick={() => quitar(e)}>Sí, borrar</button>
+                    ) : (
+                      <button className="chip" onClick={() => setConfirmar(true)}>Borrar</button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
-        ))}
-      </section>
+            ))}
+          </section>
+        </>
+      )}
+
+      {panel && (
+        <Hoja titulo={panel === 'saca' && !esMama ? `Sacaleches de ${mama}` : TITULOS[panel]} onCerrar={cerrarPanel}>
+          {panel === 'comer' && (
+            <>
+              <PasoMl etiqueta="Leche de mamá" valor={ml} nombre="de leche de mamá" onCambio={(d) => paso(ml, d, setMl, ML_KEY)} />
+              <div className="segmentado" role="radiogroup" aria-label="Cómo se la damos">
+                {(['jeringa', 'biberon', 'vasito'] as const).map((m) => (
+                  <button key={m} role="radio" aria-checked={metodo === m} onClick={() => elegirMetodo(m)}>
+                    {textoMetodo(m)}
+                  </button>
+                ))}
+              </div>
+              <button className="boton senal grande" onClick={() => apuntar({ kind: 'toma', side: 'extraida', ml, metodo })}>
+                Apuntar {ml} ml de leche de mamá
+              </button>
+              <div className="tres">
+                {(['izq', 'dcho'] as const).map((lado) => (
+                  <button key={lado} className="tecla" onClick={() => apuntar({ kind: 'toma', side: lado })}>
+                    Pecho {lado === 'izq' ? 'izq.' : 'dcho.'}
+                    <small>{sugerido === lado ? 'le toca' : 'cronómetro'}</small>
+                  </button>
+                ))}
+                <button className="tecla" aria-expanded={verFormula} onClick={() => setVerFormula(!verFormula)}>
+                  Fórmula
+                  <small>{mlFormula} ml</small>
+                </button>
+              </div>
+              {verFormula && (
+                <>
+                  <PasoMl etiqueta="Fórmula" valor={mlFormula} nombre="de fórmula" onCambio={(d) => paso(mlFormula, d, setMlFormula, ML_FORMULA)} />
+                  <button className="boton grande" onClick={() => apuntar({ kind: 'toma', side: 'bib', ml: mlFormula, metodo })}>
+                    Apuntar {mlFormula} ml de fórmula
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {panel === 'panal' && (
+            <>
+              <div className="tres">
+                <button className="tecla alta" onClick={() => apuntar({ kind: 'panal', panal: 'pipi' })}>Pipí</button>
+                <button className="tecla alta" onClick={() => apuntar({ kind: 'panal', panal: 'caca' })}>Caca</button>
+                <button className="tecla alta" onClick={() => apuntar({ kind: 'panal', panal: 'ambos' })}>Las dos</button>
+              </div>
+              <p className="nota">
+                Hoy: {pipisHoy} con pipí · {cacasHoy} con caca
+                {ultimaCaca ? ` · última caca ${cuando(ultimaCaca.at, ahora)}` : ''}
+              </p>
+            </>
+          )}
+
+          {panel === 'sueno' && (
+            <>
+              <p className="nota">
+                {sueno ? `${dormido ? 'Duerme' : 'Despierto'} desde las ${hora(sueno.at)} · ${hace(sueno.at, ahora)}` : 'Aún no hay sueño apuntado.'}
+              </p>
+              <button className="tecla alta senal" onClick={() => apuntar({ kind: dormido ? 'despierto' : 'dormido' })}>
+                {dormido ? 'Se ha despertado' : 'Se ha dormido'}
+              </button>
+            </>
+          )}
+
+          {panel === 'saca' && (
+            <>
+              <p className="nota">
+                {ultimaExt ? `Última ${haceTexto(ultimaExt.at, ahora)} · ${ext24.length} en 24 h` : 'Aún no hay extracciones apuntadas.'}
+                {mlSacados > 0 && ` · ${mlSacados} ml sacados y ${mlDados} ml dados a ${bebe.name}`}
+              </p>
+              {tocaSacar && (
+                <p className="toca" style={{ fontSize: 19, margin: 0 }}>
+                  {esMama ? 'Cuando puedas, sin prisa.' : `Buen momento para prepararle el sacaleches y un vaso de agua a ${mama}.`}
+                </p>
+              )}
+              <PasoMl etiqueta="Sacado" valor={mlSaca} nombre="sacados" onCambio={(d) => paso(mlSaca, d, setMlSaca, ML_SACA)} />
+              <div className="tres">
+                <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'izq', ml: mlSaca })}>Izquierdo</button>
+                <button className="tecla" onClick={() => apuntar({ kind: 'extraccion', side: 'dcho', ml: mlSaca })}>Derecho</button>
+                <button className="tecla senal" onClick={() => apuntar({ kind: 'extraccion', side: 'ambos', ml: mlSaca })}>Los dos</button>
+              </div>
+            </>
+          )}
+
+          {panel === 'peso' && (
+            <form
+              className="bloque"
+              onSubmit={(ev) => {
+                ev.preventDefault()
+                const g = Math.round(Number(gramos.replace(',', '.')) * (gramos.includes(',') || gramos.includes('.') ? 1000 : 1))
+                if (g >= 1000 && g <= 15000) {
+                  apuntar({ kind: 'peso', gramos: g })
+                  setGramos('')
+                }
+              }}
+            >
+              <label className="campo">
+                <span className="etiqueta">Peso en gramos o en kilos</span>
+                <input inputMode="decimal" placeholder="3250 g o 3,25 kg" value={gramos} onChange={(ev) => setGramos(ev.target.value)} />
+              </label>
+              <button className="boton senal grande" type="submit">Apuntar peso</button>
+              {pesos.length > 0 && (
+                <p className="nota">
+                  Último: {kilos(pesos[0].gramos ?? 0)} · {cuando(pesos[0].at, ahora)}
+                  {pesos[1] ? ` · ${(pesos[0].gramos ?? 0) - (pesos[1].gramos ?? 0) >= 0 ? '+' : ''}${(pesos[0].gramos ?? 0) - (pesos[1].gramos ?? 0)} g desde el anterior` : ''}
+                </p>
+              )}
+            </form>
+          )}
+        </Hoja>
+      )}
 
       {aviso && (
         <div className="hecho" role="status">
@@ -408,13 +487,13 @@ export default function Bebe({ member, bebe, mama }: Props) {
             </span>
             <button className="chip" aria-label="Cerrar" onClick={() => setAviso(null)}>✕</button>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: '#A3A3AB', alignSelf: 'center' }}>¿Fue antes?</span>
+          <div className="chips">
+            <span className="nota">¿Fue antes?</span>
             <button className="chip" onClick={() => mover(aviso, -5)}>−5</button>
             <button className="chip" onClick={() => mover(aviso, -15)}>−15</button>
             <button className="chip" onClick={() => mover(aviso, -30)}>−30</button>
             <span style={{ flexGrow: 1 }} />
-            <button className="chip senal" onClick={() => quitar(aviso)}>Deshacer</button>
+            <button className="chip texto-senal" onClick={() => quitar(aviso)}>Deshacer</button>
           </div>
         </div>
       )}

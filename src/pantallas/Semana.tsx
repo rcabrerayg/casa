@@ -19,7 +19,7 @@ function Chips({ opciones, valor, onCambio }: { opciones: string[]; valor: strin
       {opciones.map((o) => {
         const on = valor.includes(o)
         return (
-          <button key={o} type="button" className={`chip-claro${on ? ' activo' : ''}`} aria-pressed={on} onClick={() => onCambio(on ? valor.filter((x) => x !== o) : [...valor, o])}>
+          <button key={o} type="button" className={`chip${on ? ' activo' : ''}`} aria-pressed={on} onClick={() => onCambio(on ? valor.filter((x) => x !== o) : [...valor, o])}>
             {o}
           </button>
         )
@@ -155,17 +155,17 @@ function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
               {receta.consejo && <p className="cursiva sm-consejo">{receta.consejo}</p>}
             </>
           ) : (
-            <button className="chip-claro" onClick={() => void verPasos()} disabled={cargando}>
+            <button className="chip" onClick={() => void verPasos()} disabled={cargando}>
               {cargando ? 'Escribiendo la receta…' : 'Ver cómo se hace'}
             </button>
           )}
           {error && <p className="error">{error}</p>}
           {!sobras && (
             <div className="sm-votos" role="group" aria-label="¿Qué tal este plato?">
-              <button type="button" className={`chip-claro${voto === 1 ? ' activo' : ''}`} aria-pressed={voto === 1} onClick={() => onVotar(plato.titulo, momento, voto === 1 ? null : 1)}>
+              <button type="button" className={`chip${voto === 1 ? ' activo' : ''}`} aria-pressed={voto === 1} onClick={() => onVotar(plato.titulo, momento, voto === 1 ? null : 1)}>
                 Nos gustó
               </button>
-              <button type="button" className={`chip-claro${voto === -1 ? ' activo' : ''}`} aria-pressed={voto === -1} onClick={() => onVotar(plato.titulo, momento, voto === -1 ? null : -1)}>
+              <button type="button" className={`chip${voto === -1 ? ' activo' : ''}`} aria-pressed={voto === -1} onClick={() => onVotar(plato.titulo, momento, voto === -1 ? null : -1)}>
                 No repetir
               </button>
             </div>
@@ -243,6 +243,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
 
   // Por defecto: lo que se acaba de pedir (o se está haciendo); si no, la semana en curso.
   const esteLunes = lunesDeEstaSemana()
+  const hoyIdx = Math.round((Date.parse(`${new Intl.DateTimeFormat('en-CA', { timeZone: 'Atlantic/Canary' }).format(new Date())}T12:00:00Z`) - Date.parse(`${esteLunes}T12:00:00Z`)) / 86400_000)
   const reciente = [...menus].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
   const porDefecto = reciente && (reciente.estado !== 'listo' || Date.now() - new Date(reciente.created_at).getTime() < 10 * 60_000)
     ? reciente
@@ -278,7 +279,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
       {menus.length > 1 && (
         <div className="opciones-chips sm-semanas" role="group" aria-label="Semana">
           {menus.map((m) => (
-            <button key={m.semana} type="button" className={`chip-claro${m.id === menu?.id ? ' activo' : ''}`} aria-pressed={m.id === menu?.id} onClick={() => setElegida(m.semana)}>
+            <button key={m.semana} type="button" className={`chip${m.id === menu?.id ? ' activo' : ''}`} aria-pressed={m.id === menu?.id} onClick={() => setElegida(m.semana)}>
               {nombreSemana(m.semana)}
             </button>
           ))}
@@ -308,7 +309,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
           <p className="apagado sm-pista">Abre un plato y dime si os gustó o no lo repetiríais: lo tendré en cuenta en las próximas semanas.</p>
 
           {menu.plan!.dias.map((d, i) => (
-            <section className="sm-dia" key={i}>
+            <section className={`sm-dia${menu.semana === esteLunes && i === hoyIdx ? ' hoy' : ''}`} key={i}>
               <h2 className="ceja">
                 {DIAS[i]} · {fechaCorta(menu.semana, i)}
               </h2>

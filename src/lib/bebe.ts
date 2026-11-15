@@ -221,3 +221,28 @@ export function etiqueta(e: BabyEvent) {
   if (e.kind === 'panal') return e.panal === 'pipi' ? 'Pañal · pipí' : e.panal === 'caca' ? 'Pañal · caca' : 'Pañal · pipí y caca'
   return e.kind === 'dormido' ? 'Se durmió' : 'Se despertó'
 }
+
+/** Próxima toma aproximada: media entre las últimas tomas de las últimas 24 h. */
+export function proxima(tomas: BabyEvent[], ahora: number) {
+  const t = tomas.filter((e) => ahora - new Date(e.at).getTime() < 86400_000).map((e) => new Date(e.at).getTime())
+  if (t.length < 3) return null
+  const huecos = t.slice(0, -1).map((v, i) => v - t[i + 1]).filter((h) => h > 20 * 60000)
+  if (huecos.length < 2) return null
+  const media = huecos.reduce((a, b) => a + b, 0) / huecos.length
+  return new Date(t[0] + media).toISOString()
+}
+
+/** Minutos sin sacaleches a partir de los que conviene recordarlo (3 h 30). */
+export const SACAR_CADA_MIN = 210
+
+/** Texto corto de la última toma para tarjetas: «leche de mamá, 20 ml». */
+export function queFue(e: BabyEvent) {
+  const t = etiqueta(e).split(' · ').slice(0, 2).join(', ')
+  return t.charAt(0).toLowerCase() + t.slice(1)
+}
+
+/** Cada cuántos minutos toca sacaleches según los ajustes de la casa (por defecto 3 h 30). */
+export async function cadaSaca(householdId: string): Promise<number> {
+  const { data } = await supabase.from('households').select('saca_cada_min').eq('id', householdId).maybeSingle()
+  return Number(data?.saca_cada_min) || SACAR_CADA_MIN
+}

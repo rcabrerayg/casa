@@ -2,19 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase, type Household, type Member } from '../lib/supabase'
 import { enablePush, pushState, sendTest, type PushState } from '../lib/push'
 import AjustesAvisos from './AjustesAvisos'
-
-const TZ = 'Atlantic/Canary'
-
-function hoy() {
-  const d = new Date()
-  const parte = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('es-ES', { timeZone: TZ, ...o }).format(d)
-  const hora = Number(parte({ hour: 'numeric', hour12: false }))
-  return {
-    dia: parte({ day: 'numeric' }),
-    ceja: `${parte({ weekday: 'long' })} · ${parte({ month: 'long' })}`,
-    saludo: hora < 6 ? 'Buenas noches,' : hora < 14 ? 'Buenos días,' : hora < 21 ? 'Buenas tardes,' : 'Buenas noches,',
-  }
-}
+import { IcoVolver } from '../componentes/Iconos'
 
 const textoEstado: Record<PushState, string> = {
   on: 'Este móvil recibe avisos.',
@@ -24,8 +12,7 @@ const textoEstado: Record<PushState, string> = {
   unsupported: 'Este navegador no admite avisos.',
 }
 
-export default function Hoy({ member }: { member: Member }) {
-  const f = hoy()
+export default function Ajustes({ member, onVolver }: { member: Member; onVolver: () => void }) {
   const [casa, setCasa] = useState<Household | null>(null)
   const [miembros, setMiembros] = useState<Member[]>([])
   const [estado, setEstado] = useState<PushState | null>(null)
@@ -69,29 +56,25 @@ export default function Hoy({ member }: { member: Member }) {
 
   return (
     <main className="pantalla">
-      <p className="ceja">{f.ceja}</p>
-      <div className="portada">
-        <span className="dia">{f.dia}</span>
-        <h1>
-          {f.saludo}
-          <br />
-          <span className="cursiva">{member.display_name}.</span>
-        </h1>
+      <div className="cabecera">
+        <button className="volver" onClick={onVolver}>
+          <IcoVolver />
+          Volver
+        </button>
       </div>
-      <p className="apagado" style={{ margin: '-6px 0 0', fontSize: 15, lineHeight: 1.5 }}>
-        Aquí decides qué te avisa y cuándo. Pocos avisos y solo los que sirven.
-      </p>
+      <h1 className="titulo">Ajustes</h1>
+      <p className="nota">Aquí decides qué te avisa y cuándo. Pocos avisos y solo los que sirven.</p>
 
       <section className="tarjeta-noche" aria-labelledby="avisos">
         <h2 id="avisos" className="ceja" style={{ margin: 0 }}>Avisos</h2>
-        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5 }}>{estado ? textoEstado[estado] : '…'}</p>
+        <p style={{ margin: 0, lineHeight: 1.5 }}>{estado ? textoEstado[estado] : '…'}</p>
         {estado === 'off' && (
           <button className="boton" onClick={activar} disabled={ocupado}>Activar avisos en este móvil</button>
         )}
         {estado === 'on' && (
           <button className="boton" onClick={probar} disabled={ocupado}>Enviar un aviso de prueba a los dos</button>
         )}
-        {mensaje && <p role="status" style={{ margin: 0, fontSize: 14, color: '#CFCFD4' }}>{mensaje}</p>}
+        {mensaje && <p role="status" style={{ margin: 0, fontSize: 15, color: '#CFCFD4' }}>{mensaje}</p>}
       </section>
 
       <AjustesAvisos member={member} />
@@ -102,7 +85,7 @@ export default function Hoy({ member }: { member: Member }) {
           {miembros.map((m) => (
             <div className="fila" key={m.user_id}>
               <span style={{ width: 8, height: 8, background: m.user_id === member.user_id ? 'var(--senal)' : 'var(--tinta)' }} aria-hidden="true" />
-              <span style={{ fontSize: 16 }}>{m.display_name}</span>
+              <span>{m.display_name}</span>
             </div>
           ))}
         </div>
@@ -114,7 +97,7 @@ export default function Hoy({ member }: { member: Member }) {
         )}
       </section>
 
-      <button className="enlace" style={{ alignSelf: 'flex-start' }} onClick={() => supabase.auth.signOut()}>Salir</button>
+      <button className="boton secundario" onClick={() => supabase.auth.signOut()}>Salir de la cuenta</button>
     </main>
   )
 }

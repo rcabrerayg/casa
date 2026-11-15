@@ -76,7 +76,7 @@ export default function AjustesAvisos({ member }: { member: Member }) {
           </select>
         </div>
       </div>
-      <p className="apagado" style={{ margin: 0, fontSize: 13 }}>
+      <p className="nota">
         Solo llega un aviso por cada hueco: no se repite hasta que apuntéis la siguiente toma o extracción.
         {guardado && ` ${guardado}`}
       </p>
