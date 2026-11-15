@@ -221,6 +221,23 @@ async function ofertas(db: SupabaseClient) {
     .sort((a, b) => b.baja - a.baja)
     .slice(0, 25);
 }
+// Lo que hay en casa ahora (descontando el consumo diario) y lo que es reserva fija.
+type CosaCasa = { nombre: string; unidad: string; cantidad: number; consumo_dia: number; reserva: boolean; actualizado_at: string };
+async function textoCasa(db: SupabaseClient, householdId: string) {
+  const { data } = await db.from("inventario").select("nombre, unidad, cantidad, consumo_dia, reserva, actualizado_at").eq("household_id", householdId);
+  const cosas = ((data ?? []) as CosaCasa[]).map((c) => {
+    const dias = (Date.now() - new Date(c.actualizado_at).getTime()) / 86_400_000;
+    return { ...c, queda: Math.max(0, Number(c.cantidad) - Number(c.consumo_dia) * dias) };
+  });
+  if (!cosas.length) return "";
+  const hay = cosas.filter((c) => c.queda > 0 && !c.reserva).map((c) => `${c.nombre} (${Math.round(c.queda * 10) / 10} ${c.unidad})`);
+  const reserva = cosas.filter((c) => c.reserva).map((c) => c.nombre);
+  return [
+    hay.length ? `Ya hay en casa (aprovéchalo en los platos si encaja y no lo pongas en la compra si alcanza): ${hay.join("; ")}.` : "",
+    reserva.length ? `Reserva de la casa, siempre hay y se repone aparte: NO la pongas en la compra (tampoco para desayunos ni después de cenar): ${reserva.join(", ")}.` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function textoOfertas(o: Awaited<ReturnType<typeof ofertas>>) {
   if (!o.length) return "";
   return `Ofertas de esta semana (aprovéchalas si encajan; la carne o el pescado caros, solo si están aquí):
@@ -333,7 +350,8 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
     const mes = Number(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, month: "numeric" }).format(new Date()));
     const libroT = (libro ?? []) as RecetaLibro[];
     const [precios, rebajas] = await Promise.all([preciosRecetario(db, libroT), ofertas(db)]);
-    const recetario = [textoOfertas(rebajas), textoRecetario(seleccionar(libroT, precios, {
+    const casa = await textoCasa(db, householdId);
+    const recetario = [casa, textoOfertas(rebajas), textoRecetario(seleccionar(libroT, precios, {
       favoritos: new Set((favs ?? []).map((f) => f.receta_id as string)),
       gustaron: gustaron.map((g) => g.titulo), noGustaron: noGustaron.map((g) => g.titulo),
       recientes, notas: prefs.notas, aparatos: prefs.electrodomesticos, mes,

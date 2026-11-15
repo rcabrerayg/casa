@@ -229,8 +229,9 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
   async function aLaLista(m: Menu) {
     setOcupado(true)
     try {
-      await pasarALista(m)
-      onIrALista()
+      const r = await pasarALista(m)
+      if (r.deCasa.length) setAviso(`${r.anadidos} cosas a la lista. Ya en casa, no se compran: ${r.deCasa.join(', ').toLowerCase()}.`)
+      else onIrALista()
     } catch (e) {
       setAviso((e as Error).message)
     } finally {
