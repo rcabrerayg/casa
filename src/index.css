@@ -215,6 +215,10 @@ p.sp-nota { padding: 0; }
 .sm-detalle ul { color: var(--tinta-2); }
 .sm-detalle .chip-claro { align-self: flex-start; }
 .sm-consejo { margin: 0; font-size: 17px; color: #B8461F; }
+.sm-votos { display: flex; gap: 8px; flex-wrap: wrap; }
+.sm-voto-marca { font-size: 13px; color: var(--tinta-3); }
+.sm-voto-marca.no { color: #B8461F; }
+.sm-pista { margin: 0; font-size: 13px; line-height: 1.5; }
 .sm-fijos { margin: 0; font-size: 14px; line-height: 1.5; }
 .sm-compra { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linea); }
 @media (max-width: 380px) { .sm-detalle { padding-left: 0; } }

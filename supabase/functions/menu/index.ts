@@ -198,9 +198,20 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
   try {
     const { data: previos } = await db.from("menus").select("plan").eq("household_id", householdId).eq("estado", "listo")
       .order("created_at", { ascending: false }).limit(2);
+    const { data: votos } = await db.from("valoraciones").select("titulo, voto, momento").eq("household_id", householdId)
+      .order("updated_at", { ascending: false }).limit(80);
+    const gustaron = (votos ?? []).filter((v) => v.voto > 0);
+    const noGustaron = (votos ?? []).filter((v) => v.voto < 0);
+    const conMomento = (v: { titulo: string; momento: string | null }) => (v.momento ? `${v.titulo} (${v.momento})` : v.titulo);
+    // Los que gustaron pueden volver; el resto de semanas recientes, mejor variar.
     const recientes = (previos ?? []).flatMap((m) =>
       ((m.plan as PlanT | null)?.dias ?? []).flatMap((d) => [d.almuerzo.titulo, d.cena.titulo])
-    );
+    ).filter((t) => !gustaron.some((g) => g.titulo === t));
+    const aprendido = [
+      gustaron.length ? `Platos que les gustaron (pueden repetirse alguno y sirven de pista de su estilo): ${gustaron.map(conMomento).join("; ")}.` : "",
+      noGustaron.length ? `Platos que NO quieren repetir (ni versiones muy parecidas): ${noGustaron.map(conMomento).join("; ")}.` : "",
+    ].filter(Boolean).join("\n");
+    if (aprendido) prefs = { ...prefs, notas: [prefs.notas, aprendido].filter(Boolean).join("\n") };
 
     await paso("Pensando los platos");
     let plan = await planear(claude, prefs, recientes);
