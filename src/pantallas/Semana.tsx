@@ -1,8 +1,9 @@
 import { Cargador } from '../componentes/Logo'
-import { useCallback, useEffect, useState } from 'react'
+import Hoja from '../componentes/Hoja'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, nombreSemana, ponerPlato, rehacerCompra, titulosRecetario, votar,
+  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, nombreSemana, ponerPlato, rehacerCompra, sincronizar, titulosRecetario, votar, intercambiarDias,
   type Menu, type Plato, type Prefs, type Receta, type TituloReceta, type Voto,
 } from '../lib/semana'
 import { ponerEnMenu } from '../lib/recetario'
@@ -10,29 +11,50 @@ import { euros, NOMBRE, SUPERS } from '../lib/super'
 
 const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
-/** Cambiar un plato: una receta del recetario, lo que escribáis, o «comemos fuera». */
-function CambiarPlato({ menuId, dia, momento, onListo }: { menuId: string; dia: number; momento: 'almuerzo' | 'cena'; onListo: () => void }) {
+// Antojos: cada uno filtra el recetario por sus etiquetas.
+const ANTOJOS: [string, string[]][] = [
+  ['Algo rápido', ['Rápido']],
+  ['Ligero', ['Ligero']],
+  ['De cuchara', ['Legumbres', 'Guisos de cuchara']],
+  ['Pasta o arroz', ['Pasta y arroz']],
+  ['Pescado', ['Pescado']],
+  ['Pollo', ['Pollo']],
+  ['Verdura', ['Vegetariano', 'Verduras']],
+  ['Un capricho', ['Plato de cocinero', 'Receta de la casa']],
+]
+
+type CambiarProps = { menu: Menu; dia: number; momento: 'almuerzo' | 'cena'; plato: Plato; member: Member; onCerrar: () => void }
+
+/** «¿Qué te apetece?»: una receta del recetario, lo que escribáis, comer fuera, lo que haya en casa o cambiarlo de día. */
+function CambiarPlato({ menu, dia, momento, plato, member, onCerrar }: CambiarProps) {
   const [texto, setTexto] = useState('')
+  const [antojo, setAntojo] = useState<string | null>(null)
   const [recetas, setRecetas] = useState<TituloReceta[]>([])
   const [ocupado, setOcupado] = useState(false)
   const [error, setError] = useState('')
+  // Si lo eligió la mamá y ahora lo cambia otro, antes se pregunta con cariño.
+  const deElla = plato.elegido?.rol === 'mama' && plato.elegido.uid !== member.user_id
+  const [confirmado, setConfirmado] = useState(!deElla)
 
   useEffect(() => {
     titulosRecetario().then(setRecetas, (e: Error) => setError(e.message))
   }, [])
 
   const t = norm(texto.trim())
-  const sugeridas = t.length < 2 ? [] : recetas
-    .filter((r) => t.split(/\s+/).every((w) => norm(r.titulo).includes(w)))
-    .sort((a, b) => Number(b.momento === momento) - Number(a.momento === momento) || Number(norm(b.titulo).startsWith(t)) - Number(norm(a.titulo).startsWith(t)))
-    .slice(0, 5)
+  const etiquetas = ANTOJOS.find(([n]) => n === antojo)?.[1]
+  const sugeridas = t.length < 2 && !etiquetas ? [] : recetas
+    .filter((r) => r.titulo !== plato.titulo)
+    .filter((r) => t.length < 2 || t.split(/\s+/).every((w) => norm(r.titulo).includes(w)))
+    .filter((r) => !etiquetas || r.etiquetas.some((e) => etiquetas.includes(e)))
+    .sort((a, b) => Number(b.momento === momento) - Number(a.momento === momento) || Number(norm(b.titulo).startsWith(t)) - Number(norm(a.titulo).startsWith(t)) || a.minutos - b.minutos)
+    .slice(0, etiquetas ? 6 : 5)
 
   async function hacer(f: () => Promise<unknown>) {
     setOcupado(true)
     setError('')
     try {
       await f()
-      onListo()
+      onCerrar()
     } catch (e) {
       setError((e as Error).message)
       setOcupado(false)
@@ -40,40 +62,96 @@ function CambiarPlato({ menuId, dia, momento, onListo }: { menuId: string; dia: 
   }
 
   const escrito = texto.trim()
+  const corto = (x: string) => (x.length > 26 ? `${x.slice(0, 26)}…` : x)
+  const nombreMomento = momento === 'almuerzo' ? 'almuerzo' : 'cena'
+  const yaEsta = (titulo: string) => {
+    const i = menu.plan!.dias.findIndex((d) => d.almuerzo.titulo === titulo || d.cena.titulo === titulo)
+    return i < 0 ? undefined : i
+  }
+  const otros = menu.plan!.dias.map((d, i) => ({ i, plato: d[momento] })).filter((x) => x.i !== dia)
+
   return (
-    <div className="sm-cambiar">
-      <input
-        className="campo"
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
-        placeholder="Escribe el plato: macarrones, sushi…"
-        aria-label="Nuevo plato"
-        maxLength={120}
-        autoFocus
-      />
-      {sugeridas.length > 0 && (
-        <ul className="sm-sugeridas" aria-label="Del recetario">
-          {sugeridas.map((r) => (
-            <li key={r.slug}>
-              <button className="enlace" disabled={ocupado} onClick={() => void hacer(() => ponerEnMenu(menuId, dia, momento, r.slug))}>
-                {r.titulo}
+    <Hoja titulo="¿Qué te apetece?" onCerrar={onCerrar}>
+      <p className="apagado sm-hoja-sub">
+        {DIAS[dia]}, {nombreMomento} · ahora: {plato.titulo}
+      </p>
+      {!confirmado ? (
+        <div className="sm-de-ella">
+          <p>
+            Este plato lo eligió <b>{plato.elegido!.nombre}</b>. ¿Seguro que quieres cambiarlo? Le llegará un aviso.
+          </p>
+          <div className="sm-votos">
+            <button className="boton" onClick={() => setConfirmado(true)}>Sí, cambiarlo</button>
+            <button className="boton claro" onClick={onCerrar}>Mejor lo dejo</button>
+          </div>
+        </div>
+      ) : (
+        <div className="sm-cambiar">
+          <input
+            className="campo"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            placeholder="Escribe lo que te apetezca…"
+            aria-label="Nuevo plato"
+            maxLength={120}
+          />
+          <div className="opciones-chips" role="group" aria-label="Antojos">
+            {ANTOJOS.map(([n]) => (
+              <button key={n} type="button" className={`chip${antojo === n ? ' activo' : ''}`} aria-pressed={antojo === n} onClick={() => setAntojo(antojo === n ? null : n)}>
+                {n}
               </button>
-            </li>
-          ))}
-        </ul>
+            ))}
+          </div>
+          {sugeridas.length > 0 ? (
+            <ul className="sm-sugeridas" aria-label="Del recetario">
+              {sugeridas.map((r) => (
+                <li key={r.slug}>
+                  <button className="sm-sugerida" disabled={ocupado} onClick={() => void hacer(() => ponerEnMenu(menu.id, dia, momento, r.slug))}>
+                    <span>{r.titulo}</span>
+                    <small>
+                      {r.minutos} min{r.momento !== momento ? ` · mejor de ${r.momento}` : ''}
+                      {yaEsta(r.titulo) !== undefined && ` · ya está el ${DIAS[yaEsta(r.titulo)!].toLowerCase()}`}
+                    </small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (etiquetas || t.length >= 2) && <p className="apagado sm-pista">No hay recetas así en el recetario: pon lo que has escrito tal cual.</p>}
+          {escrito.length >= 2 && (
+            <button className="boton" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menu.id, dia, momento, escrito))}>
+              Poner «{corto(escrito)}»
+            </button>
+          )}
+
+          <p className="ceja sm-hoja-ceja">O sin cocinar</p>
+          <div className="opciones-chips">
+            <button className="chip" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menu.id, dia, momento, escrito ? `Comemos fuera · ${escrito}` : 'Comemos fuera', { fuera: true }))}>
+              Comemos fuera
+            </button>
+            <button className="chip" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menu.id, dia, momento, escrito ? `Pedimos a domicilio · ${escrito}` : 'Pedimos a domicilio', { fuera: true }))}>
+              Pedimos a domicilio
+            </button>
+            <button className="chip" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menu.id, dia, momento, 'Lo que haya en casa', { sinCompra: true }))}>
+              Lo que haya en casa
+            </button>
+          </div>
+
+          <p className="ceja sm-hoja-ceja">O cámbialo de día</p>
+          <ul className="sm-sugeridas" aria-label="Cambiar de día">
+            {otros.map(({ i, plato: p }) => (
+              <li key={i}>
+                <button className="sm-sugerida" disabled={ocupado} onClick={() => void hacer(() => intercambiarDias(menu.id, momento, dia, i))}>
+                  <span>{DIAS[i]}: {p.titulo}</span>
+                  <small>se cambian los dos de día</small>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="apagado sm-pista">La lista de la compra se ajusta sola: se quita lo de este plato y se añade lo del nuevo. Lo que apuntéis a mano en la lista no se toca.</p>
+        </div>
       )}
-      <div className="sm-votos">
-        {escrito.length >= 2 && (
-          <button className="chip activo" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menuId, dia, momento, escrito))}>
-            Poner «{escrito.length > 28 ? `${escrito.slice(0, 28)}…` : escrito}»
-          </button>
-        )}
-        <button className="chip" disabled={ocupado} onClick={() => void hacer(() => ponerPlato(menuId, dia, momento, escrito ? `Comemos fuera · ${escrito}` : 'Comemos fuera', true))}>
-          Comemos fuera
-        </button>
-      </div>
       {error && <p className="error">{error}</p>}
-    </div>
+    </Hoja>
   )
 }
 
@@ -172,7 +250,8 @@ function Ajustes({ inicial, onGuardado, onCancelar }: { inicial: Prefs; onGuarda
 }
 
 type FilaProps = {
-  menuId: string
+  menu: Menu
+  member: Member
   dia: number
   momento: 'almuerzo' | 'cena'
   plato: Plato
@@ -180,9 +259,10 @@ type FilaProps = {
   onVotar: (titulo: string, momento: 'almuerzo' | 'cena', v: Voto | null) => void
 }
 
-function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
+function FilaPlato({ menu, member, dia, momento, plato, voto, onVotar }: FilaProps) {
+  const menuId = menu.id
   const sobras = plato.etiquetas.includes('Sobras')
-  const fuera = plato.etiquetas.includes('Fuera')
+  const fuera = plato.etiquetas.includes('Fuera') || plato.etiquetas.includes('Sin compra')
   const [abierto, setAbierto] = useState(false)
   const [cambiando, setCambiando] = useState(false)
   const [receta, setReceta] = useState<Receta | undefined>(plato.receta)
@@ -208,7 +288,10 @@ function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
         <span className="sp-nombre">
           {plato.titulo}
           {voto && <span className={`sm-voto-marca${voto < 0 ? ' no' : ''}`}>{voto > 0 ? ' · os gustó' : ' · no repetir'}</span>}
-          <small>{fuera ? 'fuera de casa' : [plato.minutos > 0 && `${plato.minutos} min`, plato.aparato].filter(Boolean).join(' · ') || 'escrito por vosotros'}</small>
+          <small>
+            {plato.etiquetas.includes('Fuera') ? 'fuera de casa' : plato.etiquetas.includes('Sin compra') ? 'sin compra' : [plato.minutos > 0 && `${plato.minutos} min`, plato.aparato].filter(Boolean).join(' · ') || 'escrito por vosotros'}
+            {plato.elegido && <span className={`sm-eligio${plato.elegido.rol === 'mama' ? ' mama' : ''}`}> · lo eligió {plato.elegido.uid === member.user_id ? 'tú' : plato.elegido.nombre}</span>}
+          </small>
         </span>
       </button>
       {abierto && (
@@ -235,11 +318,8 @@ function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
             </button>
           )}
           {error && <p className="error">{error}</p>}
-          {cambiando ? (
-            <CambiarPlato menuId={menuId} dia={dia} momento={momento} onListo={() => setCambiando(false)} />
-          ) : (
-            <button className="chip" onClick={() => setCambiando(true)}>Cambiar plato</button>
-          )}
+          <button className="chip" onClick={() => setCambiando(true)}>Cambiar plato</button>
+          {cambiando && <CambiarPlato menu={menu} dia={dia} momento={momento} plato={plato} member={member} onCerrar={() => setCambiando(false)} />}
           {!sobras && !fuera && (
             <div className="sm-votos" role="group" aria-label="¿Qué tal este plato?">
               <button type="button" className={`chip${voto === 1 ? ' activo' : ''}`} aria-pressed={voto === 1} onClick={() => onVotar(plato.titulo, momento, voto === 1 ? null : 1)}>
@@ -292,6 +372,18 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
     void recargar()
     return escucharMenus(member.household_id, () => void recargar())
   }, [member.household_id, recargar])
+
+  // Si quedaron cambios sin ajustar en la compra (app cerrada a medias, función caída), se retoma al abrir.
+  const retomados = useRef(new Set<string>())
+  useEffect(() => {
+    for (const m of menus ?? []) {
+      const parado = !m.sincronizando_at || Date.now() - new Date(m.sincronizando_at).getTime() > 3 * 60_000
+      if ((m.plan?.cambios?.length ?? 0) > 0 && parado && !m.error && !retomados.current.has(m.id)) {
+        retomados.current.add(m.id)
+        sincronizar(m.id)
+      }
+    }
+  }, [menus])
 
   async function nuevo() {
     setAviso('')
@@ -368,6 +460,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
   const generando = menu?.estado === 'generando' && Date.now() - new Date(menu.created_at).getTime() < 5 * 60_000
   const listo = menu?.estado === 'listo' && menu.plan
   const pasado = listo && menu.total != null && menu.total > prefs.presupuesto
+  const ajustando = !!listo && (menu.plan!.cambios?.length ?? 0) > 0 && !menu.error
 
   return (
     <>
@@ -398,7 +491,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
                 {pasado ? `${euros((menu.total ?? 0) - prefs.presupuesto)} por encima` : `de ${euros(prefs.presupuesto)}`}
               </p>
             </div>
-            <button className="boton" onClick={() => void aLaLista(menu)} disabled={ocupado || rehaciendo || !!menu.paso || !!menu.plan!.compra_vieja}>A la lista</button>
+            <button className="boton" onClick={() => void aLaLista(menu)} disabled={ocupado || rehaciendo || !!menu.paso || !!menu.plan!.compra_vieja || ajustando}>A la lista</button>
           </section>
           {menu.plan!.compra_vieja && (
             <section className="sm-aviso-compra" role="status">
@@ -417,16 +510,31 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
               )}
             </section>
           )}
+          {(ajustando || (menu.error && !menu.plan!.compra_vieja)) && (
+            <section className="sm-ajustando" role="status">
+              {ajustando ? (
+                <>
+                  <span className="sm-punto" aria-hidden="true" />
+                  <p>Ajustando la compra al plato nuevo. Lo apuntado a mano en la lista no se toca.</p>
+                </>
+              ) : (
+                <>
+                  <p className="error">{menu.error}</p>
+                  {(menu.plan!.cambios?.length ?? 0) > 0 && <button className="chip" onClick={() => sincronizar(menu.id)}>Reintentar</button>}
+                </>
+              )}
+            </section>
+          )}
           <p className="cursiva sm-resumen-texto">{menu.plan!.resumen}</p>
-          <p className="apagado sm-pista">Abre un plato y dime si os gustó o no lo repetiríais: lo tendré en cuenta en las próximas semanas.</p>
+          <p className="apagado sm-pista">Abre un plato para cambiarlo por lo que os apetezca, o para decirme si os gustó: lo tendré en cuenta en las próximas semanas.</p>
 
           {menu.plan!.dias.map((d, i) => (
             <section className={`sm-dia${menu.semana === esteLunes && i === hoyIdx ? ' hoy' : ''}`} key={i}>
               <h2 className="ceja">
                 {DIAS[i]} · {fechaCorta(menu.semana, i)}
               </h2>
-              <FilaPlato key={`a-${d.almuerzo.titulo}`} menuId={menu.id} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onVotar={cambiarVoto} />
-              <FilaPlato key={`c-${d.cena.titulo}`} menuId={menu.id} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onVotar={cambiarVoto} />
+              <FilaPlato key={`a-${d.almuerzo.titulo}`} menu={menu} member={member} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onVotar={cambiarVoto} />
+              <FilaPlato key={`c-${d.cena.titulo}`} menu={menu} member={member} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onVotar={cambiarVoto} />
             </section>
           ))}
           <p className="apagado sm-fijos">
