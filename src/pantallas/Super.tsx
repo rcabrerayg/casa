@@ -1,3 +1,4 @@
+import { Cargador } from '../componentes/Logo'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import Semana from './Semana'
@@ -92,6 +93,7 @@ export type VistaComida = 'menu' | 'lista' | 'despensa'
 
 export default function Super({ member, vistaInicial, onVistaUsada }: { member: Member; vistaInicial?: VistaComida | null; onVistaUsada?: () => void }) {
   const [items, setItems] = useState<Item[]>([])
+  const [cargada, setCargada] = useState(false)
   const [productos, setProductos] = useState<Map<string, Producto>>(new Map())
   const [q, setQ] = useState('')
   const [resultados, setResultados] = useState<Producto[]>([])
@@ -137,6 +139,7 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
     try {
       const r = await cargarLista()
       setItems(r.items)
+      setCargada(true)
       setProductos(r.productos)
       // Productos sin pareja en el otro súper (p. ej. añadidos antes de tener su precio): se buscan una vez.
       const sinPareja = r.items.filter((i) => i.producto_id && !i.alternativa_id && !i.comprado_at && !probados.current.has(i.id)).slice(0, 5)
@@ -147,6 +150,7 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
       }
     } catch (e) {
       setAviso((e as Error).message)
+      setCargada(true)
     }
   }, [])
 
@@ -329,10 +333,12 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
           </div>
           <button className="boton" onClick={() => void compartir()}>Compartir lista</button>
         </section>
-      ) : (
+      ) : cargada ? (
         <p className="apagado sm-intro">
           La lista está vacía. Escribe arriba y elige el producto: te digo dónde sale más barato.
         </p>
+      ) : (
+        <Cargador pantalla={false} />
       )}
 
       {grupos.map(([nombre, s, ls]) =>

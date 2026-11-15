@@ -8,7 +8,7 @@ import { mensajes } from '../lib/animo'
 import { lunesDeEstaSemana, menusVigentes, type Plato } from '../lib/semana'
 import { cargarLista, escucharLista, euros, NOMBRE, repartir, type Linea } from '../lib/super'
 import { IcoAjustes, IcoFlecha } from '../componentes/Iconos'
-import { Logo } from '../componentes/Logo'
+import { Cargador, Logo } from '../componentes/Logo'
 import type { Panel } from './Bebe'
 import type { VistaComida } from './Super'
 
@@ -49,10 +49,13 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
   const momento = c.hora < 16 ? 'almuerzo' : 'cena'
 
   const cargarBebe = useCallback(async () => {
-    await vaciarCola()
-    setEventos(conPendientes(await cargar(bebe.id)))
-    setCargado(true)
-    setAhora(Date.now())
+    try {
+      await vaciarCola()
+      setEventos(conPendientes(await cargar(bebe.id)))
+    } finally {
+      setCargado(true)
+      setAhora(Date.now())
+    }
   }, [bebe.id])
 
   const cargarCompra = useCallback(async () => {
@@ -108,6 +111,8 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
   )
   const total = compra.reduce((s, l) => s + (l.producto ? l.producto.precio * l.item.cantidad : 0), 0)
   const supers = [...new Set(compra.map((l) => l.super).filter(Boolean))].map((s) => NOMBRE[s!])
+
+  if (!cargado) return <Cargador />
 
   return (
     <main className="pantalla">

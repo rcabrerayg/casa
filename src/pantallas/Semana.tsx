@@ -1,3 +1,4 @@
+import { Cargador } from '../componentes/Logo'
 import { useCallback, useEffect, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
@@ -239,7 +240,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
     }
   }
 
-  if (prefs === undefined || menus === undefined) return <div aria-busy="true" />
+  if (prefs === undefined || menus === undefined) return <Cargador pantalla={false} />
 
   // Por defecto: lo que se acaba de pedir (o se está haciendo); si no, la semana en curso.
   const esteLunes = lunesDeEstaSemana()

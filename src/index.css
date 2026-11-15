@@ -387,8 +387,12 @@ p.sp-nota { padding: 0; }
 .con-logo { display: inline-flex; align-items: center; gap: 10px; }
 .con-logo svg { flex-shrink: 0; border-radius: 7px; }
 .cargador { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: var(--fondo); }
-.cargador tspan { animation: respira 1.5s ease-in-out infinite; }
-.cargador tspan:nth-child(2) { animation-delay: .2s; }
-.cargador tspan:nth-child(3) { animation-delay: .4s; }
+.cargador.en-linea { min-height: 40vh; background: transparent; }
+.cargador svg { border-radius: 20px; }
+.cargador .logo-tejado { stroke-dasharray: 1; animation: tejado 1.8s ease-in-out infinite; }
+.cargador .logo-letra { animation: respira 1.8s ease-in-out infinite; }
+.cargador .logo-letra:nth-of-type(3) { animation-delay: .2s; }
+.cargador .logo-letra:nth-of-type(4) { animation-delay: .4s; }
 @keyframes respira { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .cargador tspan { animation: none; } }
+@keyframes tejado { 0% { stroke-dashoffset: 1; } 45%, 80% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+@media (prefers-reduced-motion: reduce) { .cargador .logo-tejado, .cargador .logo-letra { animation: none; } }
