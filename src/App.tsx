@@ -2,20 +2,29 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, type Member } from './lib/supabase'
 import type { Person } from './lib/bebe'
+import { useTema } from './lib/tema'
 import Acceso from './pantallas/Acceso'
 import Hogar from './pantallas/Hogar'
 import AltaBebe from './pantallas/AltaBebe'
-import Bebe from './pantallas/Bebe'
-import Hoy from './pantallas/Hoy'
-import Resumen from './pantallas/Resumen'
-import Super from './pantallas/Super'
+import Ahora from './pantallas/Ahora'
+import Bebe, { type Panel } from './pantallas/Bebe'
+import Super, { type VistaComida } from './pantallas/Super'
+import Ajustes from './pantallas/Ajustes'
+import { IcoAhora, IcoBiberon, IcoComida } from './componentes/Iconos'
 
 type Casa = { member: Member; bebe: Person | null; mama: string }
+type Seccion = 'ahora' | 'dario' | 'comida'
 
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [casa, setCasa] = useState<Casa | null | undefined>(undefined)
-  const [vista, setVista] = useState<'bebe' | 'resumen' | 'super' | 'hoy'>('bebe')
+  const [seccion, setSeccion] = useState<Seccion>('ahora')
+  const [ajustes, setAjustes] = useState(false)
+  // Lo que pide «Ahora» al saltar a otra sección: abrir un panel de Darío o un apartado de Comida.
+  const [panel, setPanel] = useState<Panel | null>(null)
+  const [vistaComida, setVistaComida] = useState<VistaComida | null>(null)
+
+  useTema(!!casa?.bebe && seccion === 'dario' && !ajustes)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -45,22 +54,56 @@ export default function App() {
     void cargarCasa()
   }, [session, cargarCasa])
 
+  // Al cambiar de sección, arriba del todo.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [seccion, ajustes])
+
   if (session === undefined || (session && casa === undefined)) return <main className="pantalla" aria-busy="true" />
   if (!session) return <Acceso />
   if (!casa) return <Hogar userId={session.user.id} onListo={() => void cargarCasa()} />
   if (!casa.member.rol || !casa.bebe) return <AltaBebe member={casa.member} bebe={casa.bebe} onListo={() => void cargarCasa()} />
 
+  if (ajustes) return <Ajustes member={casa.member} onVolver={() => setAjustes(false)} />
+
+  const ir = (s: Seccion) => {
+    setSeccion(s)
+    if (s !== 'dario') setPanel(null)
+  }
+
   return (
-    <div className={vista === 'bebe' ? 'noche' : undefined}>
-      {vista === 'bebe' && <Bebe member={casa.member} bebe={casa.bebe} mama={casa.mama} />}
-      {vista === 'resumen' && <Resumen bebe={casa.bebe} />}
-      {vista === 'super' && <Super member={casa.member} />}
-      {vista === 'hoy' && <Hoy member={casa.member} />}
-      <nav className="pie-nav cuatro" aria-label="Secciones">
-        <button aria-current={vista === 'bebe' ? 'page' : undefined} onClick={() => setVista('bebe')}>{casa.bebe.name}</button>
-        <button aria-current={vista === 'resumen' ? 'page' : undefined} onClick={() => setVista('resumen')}>Resumen</button>
-        <button aria-current={vista === 'super' ? 'page' : undefined} onClick={() => setVista('super')}>Comida</button>
-        <button aria-current={vista === 'hoy' ? 'page' : undefined} onClick={() => setVista('hoy')}>Casa y avisos</button>
+    <div className="app">
+      {seccion === 'ahora' && (
+        <Ahora
+          member={casa.member}
+          bebe={casa.bebe}
+          mama={casa.mama}
+          onAjustes={() => setAjustes(true)}
+          onBebe={(p) => {
+            setPanel(p)
+            setSeccion('dario')
+          }}
+          onComida={(v) => {
+            setVistaComida(v)
+            setSeccion('comida')
+          }}
+        />
+      )}
+      {seccion === 'dario' && <Bebe member={casa.member} bebe={casa.bebe} mama={casa.mama} panelInicial={panel} onPanelAbierto={() => setPanel(null)} />}
+      {seccion === 'comida' && <Super member={casa.member} vistaInicial={vistaComida} onVistaUsada={() => setVistaComida(null)} />}
+      <nav className="pie-nav" aria-label="Secciones">
+        <button aria-current={seccion === 'ahora' ? 'page' : undefined} onClick={() => ir('ahora')}>
+          <IcoAhora />
+          Ahora
+        </button>
+        <button aria-current={seccion === 'dario' ? 'page' : undefined} onClick={() => ir('dario')}>
+          <IcoBiberon />
+          {casa.bebe.name}
+        </button>
+        <button aria-current={seccion === 'comida' ? 'page' : undefined} onClick={() => ir('comida')}>
+          <IcoComida />
+          Comida
+        </button>
       </nav>
     </div>
   )

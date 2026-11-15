@@ -96,22 +96,15 @@ export default function Resumen({ bebe }: { bebe: Person }) {
   }
 
   return (
-    <main className="pantalla">
-      <p className="ceja">Resumen · {bebe.name}{bebe.birth_at ? ` · ${edad(bebe.birth_at, ahora)}` : ''}</p>
-      <h1 className="titular">
-        Para el
-        <br />
-        <span className="cursiva">pediatra.</span>
-      </h1>
-
-      <section style={{ display: 'flex', gap: 24, flexWrap: 'wrap', padding: '14px 0', borderTop: '1px solid var(--linea)', borderBottom: '1px solid var(--linea)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <>
+      <section className="datos-clave">
+        <div>
           <span className="ceja">Última caca</span>
-          <span style={{ fontFamily: 'var(--display)', fontSize: 22 }}>{ultimaCaca ? cuando(ultimaCaca.at, ahora) : '—'}</span>
+          <b>{ultimaCaca ? cuando(ultimaCaca.at, ahora) : '—'}</b>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div>
           <span className="ceja">Último peso</span>
-          <span style={{ fontFamily: 'var(--display)', fontSize: 22 }}>{pesos[0]?.gramos ? kilos(pesos[0].gramos) : '—'}</span>
+          <b>{pesos[0]?.gramos ? kilos(pesos[0].gramos) : '—'}</b>
         </div>
       </section>
 
@@ -150,10 +143,10 @@ export default function Resumen({ bebe }: { bebe: Person }) {
           </tbody>
         </table>
       </div>
-      <p className="apagado" style={{ margin: 0, fontSize: 12 }}>Días naturales en hora de Canarias. El de hoy está en curso.</p>
+      <p className="nota">Días naturales en hora de Canarias. El de hoy está en curso.</p>
 
       <button className="boton" onClick={compartir}>Compartir resumen</button>
-      {copiado && <p role="status" className="apagado" style={{ margin: 0, fontSize: 14 }}>{copiado}</p>}
-    </main>
+      {copiado && <p role="status" className="nota">{copiado}</p>}
+    </>
   )
 }

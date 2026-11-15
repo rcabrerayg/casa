@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  anadirALista, borrarCosa, cargarInventario, cargarSugerencias, cuanto, fijarCantidad, guardarCosa, LUGARES, reponer,
+  anadirALista, borrarCosa, pendientesEnLista, cargarInventario, cargarSugerencias, cuanto, fijarCantidad, guardarCosa, LUGARES, reponer,
   type Cosa, type Lugar, type Repuesto, type Sugerencia,
 } from '../lib/casa'
 
-const NOMBRE_LUGAR: Record<Lugar, string> = { nevera: 'Nevera', congelador: 'Congelador', despensa: 'Despensa' }
+const NOMBRE_LUGAR: Record<Lugar, string> = { nevera: 'Nevera', congelador: 'Congelador', despensa: 'Armarios' }
 const fecha = (iso: string) => new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short' }).format(new Date(iso))
 const decimal = (s: string) => Number(s.replace(',', '.'))
 
-export default function Casa({ onIrALista }: { onIrALista: () => void }) {
+export default function Despensa({ onIrALista }: { onIrALista: () => void }) {
   const [cosas, setCosas] = useState<Cosa[] | null>(null)
   const [sugerencias, setSugerencias] = useState<Sugerencia[]>([])
   const [abierta, setAbierta] = useState<string | null>(null)
@@ -16,12 +16,14 @@ export default function Casa({ onIrALista }: { onIrALista: () => void }) {
   const [aviso, setAviso] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const [nueva, setNueva] = useState(false)
+  const [enLista, setEnLista] = useState<Set<string>>(new Set())
 
   const recargar = useCallback(async () => {
     try {
-      const [c, s] = await Promise.all([cargarInventario(), cargarSugerencias()])
+      const [c, s, l] = await Promise.all([cargarInventario(), cargarSugerencias(), pendientesEnLista()])
       setCosas(c)
       setSugerencias(s)
+      setEnLista(new Set(c.filter((x) => (x.producto_id && l.productos.has(x.producto_id)) || l.textos.has(x.nombre.toLowerCase())).map((x) => x.id)))
     } catch (e) {
       setAviso((e as Error).message)
       setCosas((x) => x ?? [])
@@ -59,21 +61,12 @@ export default function Casa({ onIrALista }: { onIrALista: () => void }) {
 
   return (
     <>
-      <p className="apagado sm-intro">
-        Lo que hay en casa. Las recetas del menú tiran de aquí antes de comprar, y lo que se gasta a diario (la leche) se descuenta solo.
-      </p>
-
-      <section className="sp-resumen ca-resumen">
-        <div>
-          <p className="ceja">Para la compra</p>
-          <p className="ca-frase">
-            {pronto.length
-              ? `${pronto.map((c) => c.nombre.toLowerCase()).join(', ')}: ${pronto.length === 1 ? 'se acaba' : 'se acaban'} esta semana.`
-              : 'Nada se acaba esta semana.'}
-          </p>
-        </div>
-        <button className="boton" onClick={() => void completarLista()} disabled={ocupado}>Completar la lista</button>
-      </section>
+      <p className="nota">Lo que queda poco pasa a la lista con un toque. Toca un nombre para cambiar el resto.</p>
+      {pronto.length > 0 && (
+        <p className="aviso">
+          {pronto.map((c) => c.nombre.toLowerCase()).join(', ')}: {pronto.length === 1 ? 'se acaba' : 'se acaban'} esta semana.
+        </p>
+      )}
       {repuesto && (
         <div className="bloque ca-repuesto" role="status">
           {repuesto.length ? (
@@ -105,10 +98,10 @@ export default function Casa({ onIrALista }: { onIrALista: () => void }) {
                 <small>Cada ~{Math.round(s.cada_dias)} días · la última, el {fecha(s.ultima)}</small>
               </span>
               <div className="sm-votos">
-                <button type="button" className="chip-claro" onClick={() => void hacer(() => anadirALista(s.texto, s.producto_id))}>A la lista</button>
+                <button type="button" className="chip" onClick={() => void hacer(() => anadirALista(s.texto, s.producto_id))}>A la lista</button>
                 <button
                   type="button"
-                  className="chip-claro"
+                  className="chip"
                   onClick={() => void hacer(() => guardarCosa(null, {
                     nombre: s.texto.slice(0, 80), producto_id: s.producto_id, unidad: 'ud', cantidad: 0, reserva: true,
                     consumo_dia: Math.round((1 / Math.max(1, s.cada_dias)) * 1000) / 1000, lugar: 'despensa',
@@ -127,7 +120,7 @@ export default function Casa({ onIrALista }: { onIrALista: () => void }) {
         if (!del.length) return null
         return (
           <section key={l}>
-            <h2 className="ceja ca-lugar">{NOMBRE_LUGAR[l]}</h2>
+            <h2 className="ceja dp-lugar">{NOMBRE_LUGAR[l]}</h2>
             {del.map((c) => (
               <FilaCosa
                 key={c.id}
@@ -137,6 +130,8 @@ export default function Casa({ onIrALista }: { onIrALista: () => void }) {
                 onCantidad={(n) => void hacer(() => fijarCantidad(c.id, n))}
                 onGuardar={(cambios) => void hacer(async () => { await guardarCosa(c.id, cambios); setAbierta(null) })}
                 onBorrar={() => void hacer(() => borrarCosa(c.id))}
+                enLista={enLista.has(c.id)}
+                onALista={() => void hacer(() => anadirALista(c.nombre, c.producto_id))}
               />
             ))}
           </section>
@@ -153,7 +148,8 @@ export default function Casa({ onIrALista }: { onIrALista: () => void }) {
         />
       ) : (
         <div className="sm-acciones">
-          <button className="boton claro" onClick={() => setNueva(true)}>Añadir algo</button>
+          <button className="boton secundario" onClick={() => setNueva(true)}>Añadir algo</button>
+          <button className="boton secundario" onClick={() => void completarLista()} disabled={ocupado}>Completar la lista</button>
         </div>
       )}
     </>
@@ -167,31 +163,44 @@ type FilaProps = {
   onCantidad: (n: number) => void
   onGuardar: (c: Parameters<typeof guardarCosa>[1]) => void
   onBorrar: () => void
+  enLista: boolean
+  onALista: () => void
 }
 
-function FilaCosa({ cosa: c, abierta, onAbrir, onCantidad, onGuardar, onBorrar }: FilaProps) {
-  const bajo = (c.reserva || c.minimo > 0) && c.efectiva < Math.max(c.minimo, c.consumo_dia > 0 ? c.consumo_dia * 3 : 0)
-  const detalle = [
-    c.consumo_dia > 0 && c.dias_restantes != null ? `para ${Math.floor(c.dias_restantes)} días` : null,
-    c.reserva ? 'siempre en casa' : null,
-    c.efectiva === 0 ? 'no queda' : null,
-  ].filter(Boolean).join(' · ')
+const dias = (n: number) => `${n} ${n === 1 ? 'día' : 'días'}`
+
+function estado(c: Cosa, bajo: boolean) {
+  const d = c.consumo_dia > 0 && c.dias_restantes != null ? Math.floor(c.dias_restantes) : null
+  if (c.efectiva <= 0) return 'No queda'
+  if (bajo) return d != null ? `Queda poco · para ${dias(d)}` : 'Queda poco'
+  if (d != null) return `Para unos ${dias(d)}`
+  return 'Bien'
+}
+
+function FilaCosa({ cosa: c, abierta, onAbrir, onCantidad, onGuardar, onBorrar, enLista, onALista }: FilaProps) {
+  const bajo = c.efectiva <= 0 || ((c.reserva || c.minimo > 0) && c.efectiva < Math.max(c.minimo, c.consumo_dia > 0 ? c.consumo_dia * 3 : 0))
+  const n = Math.round(c.efectiva * 10) / 10
   return (
-    <div className={`sm-plato${bajo ? ' ca-bajo' : ''}`}>
-      <div className="rc-cab">
-        <button className="sm-plato-cab" onClick={onAbrir} aria-expanded={abierta}>
-          <span className="sp-nombre">
-            {c.nombre}
-            <small>{[cuanto(c), detalle].filter(Boolean).join(' · ')}</small>
-          </span>
+    <div className={`dp-fila${bajo ? ' bajo' : ''}`}>
+      <div className="dp-linea">
+        <button className="dp-nombre" onClick={onAbrir} aria-expanded={abierta}>
+          {c.nombre}
+          <small>{[estado(c, bajo), c.unidad !== 'ud' ? cuanto(c) : null].filter(Boolean).join(' · ')}</small>
         </button>
-        <div className="ca-pasos" role="group" aria-label={`Cantidad de ${c.nombre}`}>
+        {bajo && (
+          <button type="button" className={`chip${enLista ? '' : ' senal'}`} onClick={onALista} disabled={enLista}>
+            {enLista ? 'En la lista' : 'A la lista'}
+          </button>
+        )}
+        <div className="dp-pasos" role="group" aria-label={`Cantidad de ${c.nombre}`}>
           <button type="button" aria-label="Uno menos" onClick={() => onCantidad(Math.max(0, Math.ceil(c.efectiva) - 1))} disabled={c.efectiva <= 0}>−</button>
+          <span>{n.toLocaleString('es-ES')}</span>
           <button type="button" aria-label="Uno más" onClick={() => onCantidad(c.efectiva + 1)}>+</button>
         </div>
       </div>
       {abierta && (
-        <div className="sm-detalle ca-detalle">
+        <div className="dp-mas">
+          <p className="ceja">Más opciones</p>
           <Editor inicial={c} onGuardar={onGuardar} onCancelar={onAbrir} onBorrar={onBorrar} />
         </div>
       )}
@@ -260,11 +269,11 @@ function Editor({ inicial, titulo, onGuardar, onCancelar, onBorrar }: {
       </label>
       <div className="opciones-chips" role="group" aria-label="Dónde">
         {LUGARES.map((l) => (
-          <button key={l} type="button" className={`chip-claro${lugar === l ? ' activo' : ''}`} aria-pressed={lugar === l} onClick={() => setLugar(l)}>
+          <button key={l} type="button" className={`chip${lugar === l ? ' activo' : ''}`} aria-pressed={lugar === l} onClick={() => setLugar(l)}>
             {NOMBRE_LUGAR[l]}
           </button>
         ))}
-        <button type="button" className={`chip-claro${reserva ? ' activo' : ''}`} aria-pressed={reserva} onClick={() => setReserva(!reserva)}>
+        <button type="button" className={`chip${reserva ? ' activo' : ''}`} aria-pressed={reserva} onClick={() => setReserva(!reserva)}>
           Siempre en casa
         </button>
       </div>

@@ -47,15 +47,25 @@ try {
   /* sin almacenamiento: nada que migrar */
 }
 
+// Si el móvil no deja guardar (modo privado, almacenamiento lleno), la cola vive en memoria:
+// se sube igual mientras la app esté abierta en vez de perder el apunte.
+let memoria: Op[] = []
+let sinAlmacen = false
 function leer(): Op[] {
+  if (sinAlmacen) return memoria
   try {
     return JSON.parse(localStorage.getItem(KEY) ?? '[]') as Op[]
   } catch {
-    return []
+    return memoria
   }
 }
 function guardar(ops: Op[]) {
-  localStorage.setItem(KEY, JSON.stringify(ops))
+  memoria = ops
+  try {
+    localStorage.setItem(KEY, JSON.stringify(ops))
+  } catch {
+    sinAlmacen = true
+  }
 }
 
 export const nPendientes = () => leer().length
@@ -129,20 +139,38 @@ export function actualizar(id: string, patch: Cambio) {
   encolar({ op: 'update', id, patch })
 }
 
+/**
+ * Lo del servidor desde hace `desdeHoras`. Si no hay red o falla, devuelve lo último que se cargó bien
+ * (guardado en el móvil), nunca una lista vacía que haga pensar que se ha perdido todo.
+ */
 export async function cargar(personId: string, desdeHoras = 72): Promise<BabyEvent[]> {
+  const clave = `casa.eventos.${personId}.${desdeHoras > 72 ? 'todo' : 'corto'}`
+  const copia = (): BabyEvent[] => {
+    try {
+      return JSON.parse(localStorage.getItem(clave) ?? '[]') as BabyEvent[]
+    } catch {
+      return []
+    }
+  }
   const desde = new Date(Date.now() - desdeHoras * 3600_000).toISOString()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('baby_events')
     .select('id, household_id, person_id, kind, side, ml, panal, metodo, gramos, at, ended_at, created_by')
     .eq('person_id', personId)
     .gte('at', desde)
     .order('at', { ascending: false })
-  return (data ?? []) as BabyEvent[]
+  if (error || !data) return copia()
+  try {
+    localStorage.setItem(clave, JSON.stringify(data))
+  } catch {
+    /* sin almacenamiento: solo se pierde la copia de respaldo */
+  }
+  return data as BabyEvent[]
 }
 
 export function escuchar(personId: string, alCambiar: () => void, canalNombre = 'principal') {
   const canal = supabase
-    .channel(`bebe-${personId}-${canalNombre}`)
+    .channel(`bebe-${personId}-${canalNombre}-${crypto.randomUUID()}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'baby_events', filter: `person_id=eq.${personId}` }, alCambiar)
     .subscribe()
   return () => {
@@ -220,4 +248,29 @@ export function etiqueta(e: BabyEvent) {
   }
   if (e.kind === 'panal') return e.panal === 'pipi' ? 'Pañal · pipí' : e.panal === 'caca' ? 'Pañal · caca' : 'Pañal · pipí y caca'
   return e.kind === 'dormido' ? 'Se durmió' : 'Se despertó'
+}
+
+/** Próxima toma aproximada: media entre las últimas tomas de las últimas 24 h. */
+export function proxima(tomas: BabyEvent[], ahora: number) {
+  const t = tomas.filter((e) => ahora - new Date(e.at).getTime() < 86400_000).map((e) => new Date(e.at).getTime())
+  if (t.length < 3) return null
+  const huecos = t.slice(0, -1).map((v, i) => v - t[i + 1]).filter((h) => h > 20 * 60000)
+  if (huecos.length < 2) return null
+  const media = huecos.reduce((a, b) => a + b, 0) / huecos.length
+  return new Date(t[0] + media).toISOString()
+}
+
+/** Minutos sin sacaleches a partir de los que conviene recordarlo (3 h 30). */
+export const SACAR_CADA_MIN = 210
+
+/** Texto corto de la última toma para tarjetas: «leche de mamá, 20 ml». */
+export function queFue(e: BabyEvent) {
+  const t = etiqueta(e).split(' · ').slice(0, 2).join(', ')
+  return t.charAt(0).toLowerCase() + t.slice(1)
+}
+
+/** Cada cuántos minutos toca sacaleches según los ajustes de la casa (por defecto 3 h 30). */
+export async function cadaSaca(householdId: string): Promise<number> {
+  const { data } = await supabase.from('households').select('saca_cada_min').eq('id', householdId).maybeSingle()
+  return Number(data?.saca_cada_min) || SACAR_CADA_MIN
 }

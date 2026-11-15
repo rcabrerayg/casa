@@ -69,19 +69,19 @@ export default function Recetario({ onIrALista, onIrAlMenu }: { onIrALista: () =
       </div>
       <div className="opciones-chips" role="group" aria-label="Filtros">
         {(['almuerzo', 'cena'] as const).map((m) => (
-          <button key={m} type="button" className={`chip-claro${momento === m ? ' activo' : ''}`} aria-pressed={momento === m} onClick={() => setMomento(momento === m ? null : m)}>
+          <button key={m} type="button" className={`chip${momento === m ? ' activo' : ''}`} aria-pressed={momento === m} onClick={() => setMomento(momento === m ? null : m)}>
             {m === 'almuerzo' ? 'Almuerzos' : 'Cenas'}
           </button>
         ))}
         {FILTROS.map(([f, etiqueta]) => (
-          <button key={f} type="button" className={`chip-claro${filtros.has(f) ? ' activo' : ''}`} aria-pressed={filtros.has(f)} onClick={() => alternar(f)}>
+          <button key={f} type="button" className={`chip${filtros.has(f) ? ' activo' : ''}`} aria-pressed={filtros.has(f)} onClick={() => alternar(f)}>
             {etiqueta}
           </button>
         ))}
       </div>
       <div className="opciones-chips rc-cocinas" role="group" aria-label="Cocina">
         {cocinas.map((c) => (
-          <button key={c} type="button" className={`chip-claro${cocina === c ? ' activo' : ''}`} aria-pressed={cocina === c} onClick={() => setCocina(cocina === c ? null : c)}>
+          <button key={c} type="button" className={`chip${cocina === c ? ' activo' : ''}`} aria-pressed={cocina === c} onClick={() => setCocina(cocina === c ? null : c)}>
             {mayuscula(c)}
           </button>
         ))}
@@ -181,8 +181,8 @@ function FilaReceta({ receta: r, precio, favorita, abierta, onAbrir, onFavorito,
             <ElegirDia receta={r} onCancelar={() => setEligiendo(false)} onPuesto={(txt) => { setEligiendo(false); setAviso(txt) }} />
           ) : (
             <div className="sm-votos">
-              <button type="button" className="chip-claro" onClick={() => setEligiendo(true)}>Ponla en el menú</button>
-              <button type="button" className="chip-claro" onClick={() => void aLaLista()} disabled={ocupado}>Ingredientes a la lista</button>
+              <button type="button" className="chip" onClick={() => setEligiendo(true)}>Ponla en el menú</button>
+              <button type="button" className="chip" onClick={() => void aLaLista()} disabled={ocupado}>Ingredientes a la lista</button>
             </div>
           )}
           {aviso && (
@@ -247,7 +247,7 @@ function ElegirDia({ receta, onCancelar, onPuesto }: { receta: Receta; onCancela
       {menus.length > 1 && (
         <div className="opciones-chips" role="group" aria-label="Semana">
           {menus.map((m) => (
-            <button key={m.id} type="button" className={`chip-claro${m.id === menu.id ? ' activo' : ''}`} aria-pressed={m.id === menu.id} onClick={() => setMenuId(m.id)}>
+            <button key={m.id} type="button" className={`chip${m.id === menu.id ? ' activo' : ''}`} aria-pressed={m.id === menu.id} onClick={() => setMenuId(m.id)}>
               {nombreSemana(m.semana)}
             </button>
           ))}
@@ -255,14 +255,14 @@ function ElegirDia({ receta, onCancelar, onPuesto }: { receta: Receta; onCancela
       )}
       <div className="opciones-chips" role="group" aria-label="Día">
         {DIAS.map((d, i) => (
-          <button key={d} type="button" className={`chip-claro${dia === i ? ' activo' : ''}`} aria-pressed={dia === i} onClick={() => setDia(i)}>
+          <button key={d} type="button" className={`chip${dia === i ? ' activo' : ''}`} aria-pressed={dia === i} onClick={() => setDia(i)}>
             {d.slice(0, 3)}
           </button>
         ))}
       </div>
       <div className="opciones-chips" role="group" aria-label="Comida">
         {(['almuerzo', 'cena'] as const).map((m) => (
-          <button key={m} type="button" className={`chip-claro${momento === m ? ' activo' : ''}`} aria-pressed={momento === m} onClick={() => setMomento(m)}>
+          <button key={m} type="button" className={`chip${momento === m ? ' activo' : ''}`} aria-pressed={momento === m} onClick={() => setMomento(m)}>
             {m === 'almuerzo' ? 'Almuerzo' : 'Cena'}
           </button>
         ))}

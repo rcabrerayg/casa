@@ -72,3 +72,13 @@ export function cuanto(c: Pick<Cosa, 'efectiva' | 'unidad'>) {
   const plural = n === 1 ? c.unidad : c.unidad.endsWith('s') ? c.unidad : `${c.unidad}${/[aeiou]$/.test(c.unidad) ? 's' : 'es'}`
   return `${n.toLocaleString('es-ES')} ${plural}`
 }
+
+// Lo que ya está en la lista sin comprar, para no ofrecer «A la lista» dos veces.
+export async function pendientesEnLista(): Promise<{ productos: Set<string>; textos: Set<string> }> {
+  const { data } = await supabase.from('lista_items').select('texto, producto_id, alternativa_id').is('comprado_at', null)
+  const filas = (data ?? []) as { texto: string; producto_id: string | null; alternativa_id: string | null }[]
+  return {
+    productos: new Set(filas.flatMap((f) => [f.producto_id, f.alternativa_id]).filter(Boolean) as string[]),
+    textos: new Set(filas.map((f) => f.texto.toLowerCase())),
+  }
+}
