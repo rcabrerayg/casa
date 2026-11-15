@@ -31,6 +31,20 @@ const paraElla = [
   'Cada ml que te sacas es tuyo y de {bebe}. Cuenta todo, lo poco también.',
   'Tus ganas de darle el pecho ya son una forma de cuidarle. Hoy le alimentas igual, de otra manera.',
   'Proteger tus pezones para volver al pecho cuando se curen es una decisión valiente y sensata.',
+  'Tu marido y {bebe} te quieren con locura. Hoy, mañana y siempre.',
+  'En casa valoramos muchísimo todo lo que haces por {bebe}. Cada esfuerzo se ve y se agradece.',
+  'Gracias por cada noche, cada toma y cada ml. Esta familia va bien porque tú la sostienes con amor.',
+  '{bebe} reconoce tu olor, tu voz y tu latido. Para él, tú eres casa.',
+  'Cuando {bebe} se calma en tus brazos, es porque contigo se siente a salvo.',
+  'Algún día le contaremos a {bebe} todo lo que hiciste por él estas semanas. Y estará muy orgulloso de su madre.',
+  'Eres más fuerte de lo que crees y más querida de lo que imaginas.',
+  'No estás sola: somos un equipo, y tú eres el corazón.',
+  'Lo que haces ahora mismo es amor en estado puro.',
+  'Qué suerte tiene {bebe} de tenerte como madre.',
+  'Mira lo que habéis creado juntos. Es precioso, y tú también.',
+  'Hoy también lo estás haciendo genial, aunque estés cansada.',
+  'Tu sonrisa es lo primero que {bebe} está aprendiendo a buscar.',
+  'Estamos muy orgullosos de ti. Mucho.',
 ]
 
 const paraEl = [
@@ -48,6 +62,8 @@ const paraEl = [
   'Dale tú la leche con la jeringa y deja que ella cierre los ojos un rato.',
   'Pide cita con la matrona o una asesora de lactancia por las grietas: quítale esa gestión.',
   'Recuérdale que cada ml cuenta, aunque hoy salga poco.',
+  'Dile hoy que la quieres y que estás orgulloso de ella. En voz alta y mirándola.',
+  'Dale las gracias por algo que haya hecho por {bebe} hoy. Lo notará.',
 ]
 
 const horaLocal = (ms: number) => Number(new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: 'numeric', hour12: false }).format(new Date(ms)))
@@ -82,12 +98,12 @@ export function mensajes(c: Ctx): Mensaje[] {
     if (ext.length >= 1)
       ctx.unshift(
         mlExt > 0
-          ? `Hoy te has sacado ${mlExt} ml para {bebe}, con los pezones como los tienes. Eso es amor del bueno.`
+          ? `Hoy te has sacado ${mlExt} ml para {bebe}. Eso es amor del bueno.`
           : `Llevas ${ext.length} ${ext.length === 1 ? 'extracción' : 'extracciones'} hoy. Cada una cuenta, salga lo que salga.`,
       )
   } else {
     if (noche >= 2 && horaLocal(c.ahora) < 13) ctx.push(`Esta noche ha habido ${noche} tomas. Hoy recuérdale a {mama} lo bien que lo ha hecho.`)
-    if (mlExt > 0) ctx.unshift(`{mama} se ha sacado hoy ${mlExt} ml con dolor. Díselo: lo estás viendo y es enorme.`)
+    if (mlExt > 0) ctx.unshift(`{mama} se ha sacado hoy ${mlExt} ml para {bebe}. Díselo: lo estás viendo y es enorme.`)
     if (dias !== null && dias >= 2 && dias <= 10)
       ctx.push('Estos días son de bajón hormonal. Si la ves llorar sin motivo, es normal: lo que más ayuda es que estés cerca y le quites carga.')
   }
