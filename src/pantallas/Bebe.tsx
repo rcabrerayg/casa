@@ -211,6 +211,15 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
     if (aviso?.id === e.id) setAviso({ ...e, ...patch })
   }
 
+  /** Pone la hora HH:MM (Canarias) más cercana a la actual: pasar de 00:10 a 23:50 es la noche anterior. */
+  function ponerHora(e: BabyEvent, hhmm: string) {
+    const min = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5))
+    let d = min(hhmm) - min(hora(e.at))
+    if (d > 720) d -= 1440
+    if (d < -720) d += 1440
+    if (d) mover(e, d)
+  }
+
   function paso(valor: number, d: number, set: (n: number) => void, clave: string) {
     const v = Math.min(300, Math.max(5, valor + d))
     set(v)
@@ -355,8 +364,14 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
                 </button>
                 {abierto === e.id && (
                   <div className="editor">
-                    <span className="nota">Mover la hora</span>
-                    <button className="chip" onClick={() => mover(e, -15)}>−15 min</button>
+                    <span className="nota">Cambiar la hora</span>
+                    <input
+                      type="time"
+                      className="hora-editor"
+                      aria-label="Hora"
+                      value={hora(e.at)}
+                      onChange={(ev) => ev.target.value && ponerHora(e, ev.target.value)}
+                    />
                     <button className="chip" onClick={() => mover(e, -5)}>−5 min</button>
                     <button className="chip" onClick={() => mover(e, 5)}>+5 min</button>
                     <span style={{ flexGrow: 1 }} />
