@@ -137,7 +137,7 @@ export const pedirReceta = (menuId: string, dia: number, momento: 'almuerzo' | '
 
 export function escucharMenus(householdId: string, alCambiar: () => void) {
   const canal = supabase
-    .channel(`menus-${householdId}`)
+    .channel(`menus-${householdId}-${crypto.randomUUID()}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'menus', filter: `household_id=eq.${householdId}` }, alCambiar)
     .subscribe()
   return () => {

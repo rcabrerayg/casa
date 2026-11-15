@@ -336,7 +336,7 @@ p.sp-nota { padding: 0; }
 .sm-compra { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linea); }
 
 /* ——— Comida · recetario ——— */
-.rc-cocinas .chip { min-height: 40px; font-size: 14px; }
+.rc-cocinas .chip { font-size: 14px; padding: 0 12px; }
 .rc-cab { display: flex; align-items: center; gap: 4px; }
 .rc-cab .sm-plato-cab { flex: 1; min-width: 0; }
 .rc-coste { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; letter-spacing: .02em; text-transform: none; font-size: 14px; color: var(--tinta-2); }

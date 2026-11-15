@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  anadirALista, borrarCosa, cargarInventario, cargarSugerencias, cuanto, fijarCantidad, guardarCosa, LUGARES, reponer,
+  anadirALista, borrarCosa, pendientesEnLista, cargarInventario, cargarSugerencias, cuanto, fijarCantidad, guardarCosa, LUGARES, reponer,
   type Cosa, type Lugar, type Repuesto, type Sugerencia,
 } from '../lib/casa'
 
@@ -20,9 +20,10 @@ export default function Despensa({ onIrALista }: { onIrALista: () => void }) {
 
   const recargar = useCallback(async () => {
     try {
-      const [c, s] = await Promise.all([cargarInventario(), cargarSugerencias()])
+      const [c, s, l] = await Promise.all([cargarInventario(), cargarSugerencias(), pendientesEnLista()])
       setCosas(c)
       setSugerencias(s)
+      setEnLista(new Set(c.filter((x) => (x.producto_id && l.productos.has(x.producto_id)) || l.textos.has(x.nombre.toLowerCase())).map((x) => x.id)))
     } catch (e) {
       setAviso((e as Error).message)
       setCosas((x) => x ?? [])
@@ -130,10 +131,7 @@ export default function Despensa({ onIrALista }: { onIrALista: () => void }) {
                 onGuardar={(cambios) => void hacer(async () => { await guardarCosa(c.id, cambios); setAbierta(null) })}
                 onBorrar={() => void hacer(() => borrarCosa(c.id))}
                 enLista={enLista.has(c.id)}
-                onALista={() => {
-                  setEnLista((x) => new Set(x).add(c.id))
-                  void hacer(() => anadirALista(c.nombre, c.producto_id))
-                }}
+                onALista={() => void hacer(() => anadirALista(c.nombre, c.producto_id))}
               />
             ))}
           </section>

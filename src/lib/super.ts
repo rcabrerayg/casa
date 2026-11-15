@@ -72,7 +72,7 @@ export async function cargarLista(): Promise<{ items: Item[]; productos: Map<str
 
 export function escucharLista(householdId: string, alCambiar: () => void, nombre = 'principal') {
   const canal = supabase
-    .channel(`lista-${householdId}-${nombre}`)
+    .channel(`lista-${householdId}-${nombre}-${crypto.randomUUID()}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'lista_items', filter: `household_id=eq.${householdId}` }, alCambiar)
     .subscribe()
   return () => {

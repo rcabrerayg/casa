@@ -47,15 +47,25 @@ try {
   /* sin almacenamiento: nada que migrar */
 }
 
+// Si el móvil no deja guardar (modo privado, almacenamiento lleno), la cola vive en memoria:
+// se sube igual mientras la app esté abierta en vez de perder el apunte.
+let memoria: Op[] = []
+let sinAlmacen = false
 function leer(): Op[] {
+  if (sinAlmacen) return memoria
   try {
     return JSON.parse(localStorage.getItem(KEY) ?? '[]') as Op[]
   } catch {
-    return []
+    return memoria
   }
 }
 function guardar(ops: Op[]) {
-  localStorage.setItem(KEY, JSON.stringify(ops))
+  memoria = ops
+  try {
+    localStorage.setItem(KEY, JSON.stringify(ops))
+  } catch {
+    sinAlmacen = true
+  }
 }
 
 export const nPendientes = () => leer().length
@@ -129,20 +139,38 @@ export function actualizar(id: string, patch: Cambio) {
   encolar({ op: 'update', id, patch })
 }
 
+/**
+ * Lo del servidor desde hace `desdeHoras`. Si no hay red o falla, devuelve lo último que se cargó bien
+ * (guardado en el móvil), nunca una lista vacía que haga pensar que se ha perdido todo.
+ */
 export async function cargar(personId: string, desdeHoras = 72): Promise<BabyEvent[]> {
+  const clave = `casa.eventos.${personId}.${desdeHoras > 72 ? 'todo' : 'corto'}`
+  const copia = (): BabyEvent[] => {
+    try {
+      return JSON.parse(localStorage.getItem(clave) ?? '[]') as BabyEvent[]
+    } catch {
+      return []
+    }
+  }
   const desde = new Date(Date.now() - desdeHoras * 3600_000).toISOString()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('baby_events')
     .select('id, household_id, person_id, kind, side, ml, panal, metodo, gramos, at, ended_at, created_by')
     .eq('person_id', personId)
     .gte('at', desde)
     .order('at', { ascending: false })
-  return (data ?? []) as BabyEvent[]
+  if (error || !data) return copia()
+  try {
+    localStorage.setItem(clave, JSON.stringify(data))
+  } catch {
+    /* sin almacenamiento: solo se pierde la copia de respaldo */
+  }
+  return data as BabyEvent[]
 }
 
 export function escuchar(personId: string, alCambiar: () => void, canalNombre = 'principal') {
   const canal = supabase
-    .channel(`bebe-${personId}-${canalNombre}`)
+    .channel(`bebe-${personId}-${canalNombre}-${crypto.randomUUID()}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'baby_events', filter: `person_id=eq.${personId}` }, alCambiar)
     .subscribe()
   return () => {

@@ -10,12 +10,14 @@ export default function Hoja({ titulo, onCerrar, children }: { titulo: string; o
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => e.key === 'Escape' && cerrar.current()
     document.addEventListener('keydown', tecla)
+    const origen = document.activeElement as HTMLElement | null
     const antes = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     caja.current?.focus()
     return () => {
       document.removeEventListener('keydown', tecla)
       document.body.style.overflow = antes
+      origen?.focus?.()
     }
   }, [])
 

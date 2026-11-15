@@ -122,6 +122,11 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
   useEffect(() => {
     if (!vistaInicial) return
     setVista(vistaInicial)
+    try {
+      localStorage.setItem('casa-comida', vistaInicial)
+    } catch {
+      /* sin almacenamiento */
+    }
     setRecetario(false)
     onVistaUsada?.()
   }, [vistaInicial, onVistaUsada])

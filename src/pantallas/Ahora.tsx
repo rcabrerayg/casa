@@ -48,7 +48,7 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
 
   const cargarBebe = useCallback(async () => {
     await vaciarCola()
-    setEventos(conPendientes(await cargar(bebe.id, 30)))
+    setEventos(conPendientes(await cargar(bebe.id)))
     setAhora(Date.now())
   }, [bebe.id])
 
@@ -69,11 +69,17 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
     const pararLista = escucharLista(member.household_id, () => void cargarCompra(), 'ahora')
     const visible = () => document.visibilityState === 'visible' && void cargarBebe()
     document.addEventListener('visibilitychange', visible)
+    const online = () => {
+      void cargarBebe()
+      void cargarCompra()
+    }
+    window.addEventListener('online', online)
     const tic = setInterval(() => setAhora(Date.now()), 30_000)
     return () => {
       pararBebe()
       pararLista()
       document.removeEventListener('visibilitychange', visible)
+      window.removeEventListener('online', online)
       clearInterval(tic)
     }
   }, [bebe.id, member.household_id, cargarBebe, cargarCompra])

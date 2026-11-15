@@ -295,12 +295,13 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
             <button className="accion" onClick={() => setPanel('saca')}>
               <span className="icono">
                 <IcoGota />
-                {tocaSacar && <span className="cuadro" aria-label="Ya toca" />}
+                {tocaSacar && <span className="cuadro" aria-hidden="true" />}
               </span>
               <span>
                 <b>Sacaleches</b>
                 <br />
                 <small>{ultimaExt ? `${esMama ? 'tú' : mama} · ${haceTexto(ultimaExt.at, ahora)}` : esMama ? 'apunta la primera' : mama}</small>
+                {tocaSacar && <span className="solo-lector">, ya toca</span>}
               </span>
             </button>
           </div>
@@ -381,12 +382,25 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
                 Apuntar {ml} ml de leche de mamá
               </button>
               <div className="tres">
-                {(['izq', 'dcho'] as const).map((lado) => (
-                  <button key={lado} className="tecla" onClick={() => apuntar({ kind: 'toma', side: lado })}>
-                    Pecho {lado === 'izq' ? 'izq.' : 'dcho.'}
-                    <small>{sugerido === lado ? 'le toca' : 'cronómetro'}</small>
-                  </button>
-                ))}
+                {actual && (actual.side === 'izq' || actual.side === 'dcho') ? (
+                  <>
+                    <button className="tecla" onClick={() => { cambiarPecho(); cerrarPanel() }}>
+                      <small>Cambiar al</small>
+                      {nombreLado(otro(actual.side))}
+                    </button>
+                    <button className="tecla" onClick={() => { terminar(); cerrarPanel() }}>
+                      <small>{cronometro(actual.at, ahora)}</small>
+                      Terminar pecho
+                    </button>
+                  </>
+                ) : (
+                  (['izq', 'dcho'] as const).map((lado) => (
+                    <button key={lado} className="tecla" onClick={() => apuntar({ kind: 'toma', side: lado })}>
+                      Pecho {lado === 'izq' ? 'izq.' : 'dcho.'}
+                      <small>{sugerido === lado ? 'le toca' : 'cronómetro'}</small>
+                    </button>
+                  ))
+                )}
                 <button className="tecla" aria-expanded={verFormula} onClick={() => setVerFormula(!verFormula)}>
                   Fórmula
                   <small>{mlFormula} ml</small>
