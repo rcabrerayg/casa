@@ -72,6 +72,25 @@ export async function guardarPrefs(p: Prefs) {
   if (error) throw error
 }
 
+// Lunes de esta semana en Canarias (YYYY-MM-DD).
+export function lunesDeEstaSemana(): string {
+  const hoy = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'Atlantic/Canary' }).format(new Date()) + 'T12:00:00Z')
+  hoy.setUTCDate(hoy.getUTCDate() - ((hoy.getUTCDay() + 6) % 7))
+  return hoy.toISOString().slice(0, 10)
+}
+
+// Los menús de esta semana en adelante (el último hecho de cada semana), por orden de semana.
+// Si no hay ninguno vigente, el último que haya.
+export async function menusVigentes(): Promise<Menu[]> {
+  const { data } = await supabase.from('menus').select('*').gte('semana', lunesDeEstaSemana())
+    .order('created_at', { ascending: false }).limit(10)
+  const porSemana = new Map<string, Menu>()
+  for (const m of (data ?? []) as Menu[]) if (!porSemana.has(m.semana)) porSemana.set(m.semana, m)
+  if (porSemana.size) return [...porSemana.values()].sort((a, b) => a.semana.localeCompare(b.semana))
+  const ultimo = await ultimoMenu()
+  return ultimo ? [ultimo] : []
+}
+
 export async function ultimoMenu(): Promise<Menu | null> {
   const { data } = await supabase.from('menus').select('*').order('created_at', { ascending: false }).limit(1).maybeSingle()
   return data as Menu | null
