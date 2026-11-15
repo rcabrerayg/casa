@@ -26,7 +26,7 @@ OTONO = [10, 11, 12, 1, 2, 3]
 
 r("secreto-pimienta", "Secreto ibérico con salsa de pimienta y arroz blanco", "española", "almuerzo", 30, VITRO,
   ["De la casa", "Plato de cocinero", "Cerdo"],
-  ["400 g de secreto ibérico", "150 g de arroz largo", "1 chalota o media cebolla pequeña", "1 cucharada de pimienta negra en grano",
+  ["400 g de secreto (el ibérico es lo suyo; el de cerdo blanco cuesta un tercio y queda muy bien)", "150 g de arroz largo", "1 chalota o media cebolla pequeña", "1 cucharada de pimienta negra en grano",
    "200 ml de nata para cocinar", "100 ml de caldo de carne o de pollo", "30 ml de brandy (opcional, ver truco)", "10 g de mantequilla"],
   ["Saca el secreto de la nevera 20 minutos antes y sécalo bien con papel: carne fría y húmeda no se dora, se cuece.",
    "Pon el arroz en la arrocera (o cuécelo 11 minutos en agua con sal) y déjalo tapado reposando.",
@@ -647,6 +647,66 @@ r("nachos-horno", "Nachos al horno con frijoles, queso y guacamole", "mexicana",
   "Al momento.")
 
 
+# ═══════════════════════ Lo que cuesta de verdad cada plato ═══════════════════════
+# Solo los ingredientes que mueven el precio (para 2), como (búsqueda en el catálogo, cantidad, unidad kg|l|ud).
+# El resto (verdura de sofrito, especias) va en una base fija. La función SQL recetario_costes() los cruza con precios.
+CLAVES = {
+    "secreto-pimienta": [("secreto cerdo", .4, "kg", ["arroz", "hamburguesa", "relleno", "iberico"]), ("nata cocinar", .2, "l"), ("arroz largo", .15, "kg")],
+    "solomillo-cerveza": [("cerdo solomillo", .45, "kg"), ("papa", .4, "kg"), ("cerveza tostada", .33, "l")],
+    "lentejas-riojana": [("lentejas pardinas", .25, "kg"), ("chorizo", .15, "kg", ["lentejas", "garbanzos", "fabada", "tortilla", "pizza", "croqueta", "pan", "loncha", "pamplona", "bocadillo"]), ("papa", .2, "kg")],
+    "risotto-boletus": [("arroz risotto", .16, "kg"), ("champiñon", .2, "kg", ["perro", "gato", "crema", "salsa", "pizza", "croqueta", "salteado de gambas"]), ("grana padano", .04, "kg"), ("mantequilla", .03, "kg", ["palomitas", "masa", "helado", "rosquilla", "galleta", "cacahuete", "pan", "croissant", "hojaldre", "pasta", "caracola", "canela", "napolitana", "sobao", "magdalena", "bizcocho"])],
+    "filete-ternera-padron": [("novillo filete", .4, "kg"), ("pimiento padron", .15, "kg"), ("papa", .4, "kg")],
+    "garbanzos-espinacas": [("garbanzos cocidos", .4, "kg"), ("espinacas", .3, "kg")],
+    "pollo-ajillo": [("contramuslo pollo", .6, "kg"), ("papa", .4, "kg")],
+    "albondigas-almendras": [("picada vacuno cerdo", .4, "kg"), ("almendra", .03, "kg", ["bebida", "leche", "chocolate", "turron", "crema", "galleta", "yogur", "gel", "bano", "champu", "jabon", "aceite corporal", "pasta", "harina"]), ("caldo pollo", .4, "l", ["cacito", "avecrem", "pastilla", "granulado", "concentrado"])],
+    "arroz-horno": [("arroz redondo", .16, "kg"), ("costilla cerdo", .25, "kg"), ("morcilla", .15, "kg"), ("garbanzos cocidos", .2, "kg")],
+    "merluza-verde": [("merluza", .4, "kg", ["palitos", "romana", "rebozad", "empanad", "varitas", "croqueta", "salsa", "hamburguesa", "potito", "nutriben", "suprema", "tarrito", "hero", "verduritas"]), ("papa", .4, "kg")],
+    "carrilleras-vino": [("carrillera", .6, "kg", ["pasta", "ravioli", "girasol"]), ("vino tinto", .25, "l", ["vinagre"]), ("papa", .5, "kg")],
+    "judias-costilla": [("alubia blanca", .2, "kg"), ("costilla cerdo", .25, "kg")],
+    "caballa-horno": [("caballa fresca", .8, "kg"), ("papa", .4, "kg")],
+    "arroz-meloso-setas": [("arroz redondo", .16, "kg"), ("contramuslo pollo", .25, "kg"), ("setas", .25, "kg", ["crema", "croqueta", "arroz", "risotto", "pizza", "salsa", "sopa", "tortitas", "pasta", "mezzelune"]), ("caldo pollo", 1, "l", ["cacito", "avecrem", "pastilla", "granulado", "concentrado"])],
+    "pisto-huevo": [("calabacin", .3, "kg"), ("berenjena", .3, "kg"), ("tomate triturado", .4, "kg"), ("huevos", 2, "ud", ["codorniz"])],
+    "amatriciana": [("espaguetis", .2, "kg"), ("bacon taco", .12, "kg"), ("tomate triturado", .4, "kg")],
+    "ragu-bolones": [("picada vacuno cerdo", .4, "kg"), ("tagliatelle", .25, "kg"), ("tomate triturado", .4, "kg"), ("grana padano", .03, "kg")],
+    "pasta-ceci": [("garbanzos cocidos", .4, "kg"), ("macarrones", .12, "kg"), ("grana padano", .02, "kg")],
+    "pollo-cacciatora": [("contramuslo pollo", .6, "kg"), ("champiñon", .15, "kg", ["perro", "gato", "crema", "salsa", "pizza", "croqueta"]), ("tomate troceado", .4, "kg")],
+    "orecchiette-brocoli": [("macarrones", .2, "kg"), ("brocoli", .4, "kg"), ("salchicha cerdo", .2, "kg", ["cocktail", "frankfurt", "viena", "perro", "gato", "lata", "cocida", "ahumada"])],
+    "tinga-pollo": [("contramuslo pollo", .5, "kg"), ("tomate triturado", .4, "kg"), ("alubia negra", .4, "kg"), ("aguacate", .2, "kg", ["dados", "guacamole", "salsa", "smoothie", "batido", "mango", "crema", "aceite"]), ("tortillas trigo", .2, "kg", ["maiz"])],
+    "chili-carne": [("picada vacuno", .3, "kg"), ("alubia roja", .4, "kg"), ("tomate triturado", .4, "kg"), ("arroz largo", .15, "kg")],
+    "tacos-pastor": [("cinta lomo", .4, "kg"), ("piña", .2, "kg", ["refresco", "zumo", "bebida", "nectar", "yogur", "gominola", "sabor", "aquavia", "mango", "leche", "coco"]), ("tortillas maiz", .2, "kg")],
+    "pollo-teriyaki": [("contramuslo pollo", .5, "kg"), ("brocoli", .3, "kg"), ("arroz largo", .15, "kg"), ("salsa soja", .06, "l")],
+    "curry-rojo": [("pechuga pollo", .4, "kg", ["empanad", "rebozad", "fiambre", "pavo", "loncha", "nugget", "asada", "cocida", "barra"]), ("leche coco", .4, "l", ["gel", "champu", "bebida", "palmolive", "crema", "helado", "yogur", "fruta", "pina"]), ("arroz largo", .15, "kg")],
+    "arroz-frito": [("lomo cerdo", .2, "kg"), ("huevos", 2, "ud", ["codorniz"]), ("guisantes", .1, "kg")],
+    "cerdo-jengibre": [("lomo cerdo", .4, "kg"), ("cebolla", .2, "kg", ["frita", "crujiente", "polvo", "sopa", "crema", "picada", "ducros"]), ("arroz largo", .15, "kg")],
+    "dal-lentejas": [("lenteja roja", .2, "kg", ["pasta", "fusilli", "macarrones", "espaguetis", "espirales", "gluten"]), ("leche coco", .2, "l", ["gel", "champu", "bebida", "palmolive", "crema", "helado", "yogur", "fruta", "pina"]), ("arroz basmati", .15, "kg")],
+    "tikka-masala": [("pechuga pollo", .4, "kg", ["empanad", "rebozad", "fiambre", "pavo", "loncha", "nugget", "asada", "cocida", "barra"]), ("yogur natural", .125, "kg", ["liquido", "azucar", "sabor"]), ("nata cocinar", .1, "l"), ("arroz basmati", .15, "kg")],
+    "shawarma-pollo": [("contramuslo pollo", .5, "kg"), ("yogur griego", .125, "kg"), ("pepino", .3, "kg"), ("arroz largo", .15, "kg")],
+    "kofta-cuscus": [("picada vacuno cerdo", .4, "kg"), ("cous cous", .15, "kg", ["vasitos", "mediterraneo"]), ("yogur griego", .125, "kg")],
+    "shakshuka": [("huevos", 4, "ud", ["codorniz"]), ("tomate triturado", .4, "kg"), ("pimiento rojo", .3, "kg"), ("queso fresco", .1, "kg")],
+    "pollo-mostaza": [("contramuslo pollo", .6, "kg"), ("nata cocinar", .15, "l"), ("mostaza", .04, "kg")],
+    "ternera-borgona": [("morcillo", .5, "kg"), ("bacon taco", .1, "kg"), ("champiñon", .2, "kg", ["perro", "gato", "crema", "salsa", "pizza", "croqueta", "salteado de gambas"]), ("vino tinto", .3, "l", ["vinagre"])],
+    "hachis-parmentier": [("picada vacuno cerdo", .35, "kg"), ("papa", .5, "kg"), ("queso rallado", .05, "kg")],
+    "quiche-lorraine": [("masa quebrada", .23, "kg"), ("bacon taco", .15, "kg"), ("huevos", 3, "ud", ["codorniz"]), ("nata cocinar", .2, "l"), ("emmental rallado", .08, "kg")],
+    "salmon-mostaza-miel": [("salmon lomo", .3, "kg"), ("calabacin", .3, "kg"), ("pimiento rojo", .2, "kg")],
+    "hummus-casero": [("garbanzos cocidos", .4, "kg"), ("tahini", .015, "kg"), ("zanahoria", .2, "kg", ["bebida", "zumo", "perro", "salchicha", "crema", "pastel", "mezcla", "tarta"]), ("pan pita", .15, "kg")],
+    "tosta-pimiento-cabra": [("pimiento asado", .2, "kg", ["aceitunas", "rellena", "anchoa"]), ("rulo cabra", .1, "kg"), ("pan barra", .25, "kg", ["rebanad", "tostad", "rallado"])],
+    "burritos-frijoles": [("tortillas trigo", .2, "kg", ["maiz"]), ("alubia negra", .2, "kg"), ("queso rallado", .06, "kg")],
+    "quesadillas-champi": [("tortillas trigo", .2, "kg", ["maiz"]), ("champiñon", .2, "kg", ["perro", "gato", "crema", "salsa", "pizza", "croqueta", "salteado de gambas"]), ("queso rallado", .1, "kg")],
+    "sandwich-club": [("pan molde", .2, "kg"), ("pechuga pollo", .2, "kg", ["empanad", "rebozad", "fiambre", "pavo", "loncha", "nugget", "asada", "cocida", "barra"]), ("bacon lonchas", .06, "kg")],
+    "tostas-champi-jamon": [("pan hogaza", .25, "kg", ["gluten"]), ("champiñon", .25, "kg", ["perro", "gato", "crema", "salsa", "pizza", "croqueta"]), ("jamon serrano lonchas", .05, "kg")],
+    "tabla-picoteo": [("queso semicurado", .12, "kg"), ("jamon serrano lonchas", .08, "kg"), ("aceitunas", .1, "kg"), ("pan barra", .25, "kg", ["rebanad", "tostad", "rallado"])],
+    "tortilla-patatas": [("huevos", 4, "ud", ["codorniz"]), ("papa", .5, "kg")],
+    "ensalada-garbanzos": [("garbanzos cocidos", .4, "kg"), ("atun claro", .16, "kg"), ("huevos", 2, "ud", ["codorniz"])],
+    "wrap-cesar": [("pechuga pollo", .3, "kg", ["empanad", "rebozad", "fiambre", "pavo", "loncha", "nugget", "asada", "cocida", "barra"]), ("tortillas trigo", .2, "kg", ["maiz"]), ("lechuga romana", .3, "kg"), ("yogur griego", .125, "kg")],
+    "croque-monsieur": [("pan molde", .2, "kg"), ("jamon cocido", .1, "kg"), ("emmental rallado", .08, "kg")],
+    "falafel-pita": [("garbanzos cocidos", .4, "kg"), ("pan pita", .2, "kg"), ("yogur griego", .125, "kg")],
+    "crema-calabaza": [("calabaza", .6, "kg"), ("caldo verduras", .5, "l")],
+    "tostas-salmon": [("salmon ahumado", .1, "kg"), ("queso crema", .08, "kg", ["calabacin", "knorr", "sopa", "crema de"]), ("pan molde", .15, "kg")],
+    "baba-ganoush": [("berenjena", .6, "kg"), ("pan pita", .2, "kg")],
+    "nachos-horno": [("nachos", .2, "kg"), ("alubia negra", .2, "kg"), ("queso rallado", .1, "kg"), ("aguacate", .2, "kg", ["dados", "guacamole", "salsa", "smoothie", "batido", "mango", "crema", "aceite"])],
+}
+
+
 def sql():
     q = lambda s: "$r$" + s + "$r$"
     arr = lambda xs: "array[" + ",".join(q(x) for x in xs) + "]::text[]"
@@ -667,10 +727,27 @@ def sql():
             "  sobras = excluded.sobras, congela = excluded.congela, coste = excluded.coste, meses = excluded.meses;\n")
 
 
+def sql_claves():
+    q = lambda s: "$r$" + s + "$r$"
+    def clave(t):
+        b, c, u, *x = t
+        d = dict(q=b, cant=round(c, 3), u=u)
+        if x:
+            d["x"] = x[0]
+        return d
+    filas = ",\n".join(f"({q(slug)}, {q(json.dumps([clave(t) for t in v], ensure_ascii=False))}::jsonb)"
+                        for slug, v in CLAVES.items())
+    return ("-- Ingredientes que marcan el precio de cada receta (generado por scripts/recetario.py --claves).\n"
+            "update public.recetario r set claves = v.claves from (values\n" + filas + "\n) v(slug, claves) where r.slug = v.slug;\n")
+
+
 if __name__ == "__main__":
     slugs = [x["slug"] for x in R]
     assert len(slugs) == len(set(slugs)), "slug repetido"
-    if "--json" in sys.argv:
+    assert set(CLAVES) == set(slugs), f"faltan claves: {set(slugs) - set(CLAVES)}"
+    if "--claves" in sys.argv:
+        print(sql_claves())
+    elif "--json" in sys.argv:
         print(json.dumps(R, ensure_ascii=False))
     else:
         print(sql())
