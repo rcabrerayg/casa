@@ -45,6 +45,18 @@ const paraElla = [
   'Hoy también lo estás haciendo genial, aunque estés cansada.',
   'Tu sonrisa es lo primero que {bebe} está aprendiendo a buscar.',
   'Estamos muy orgullosos de ti. Mucho.',
+  // Calma con la lactancia
+  'Que {bebe} no coja el pezón no significa que no le guste ni que no te quiera. Es algo nuevo para los dos y lo estáis aprendiendo.',
+  'Después de unos días con jeringa, volver al pecho es reentrenar: un poquito cada día, sin prisa y sin examen.',
+  'Si una toma al pecho no sale, no pasa nada. Hoy le das tu leche de otra forma y luego lo volvéis a intentar.',
+  'Piel con piel sin ningún objetivo, solo {bebe} encima de ti. Eso también es entrenar el pecho.',
+  '{bebe} nace sabiendo buscarte. A veces solo necesita tiempo y calma para recordarlo.',
+  'Muchos bebés que empezaron con jeringa vuelven al pecho. El camino sigue abierto, aunque hoy no salga.',
+  'Respira hondo antes de probar. Tu calma le llega a {bebe} y le ayuda a abrir la boca y animarse.',
+  'Un intento cortito también cuenta. Si os frustráis, paráis, un abrazo y otro rato.',
+  'Esto no es una carrera. Cada día que lo intentáis, {bebe} conoce un poco mejor tu pecho.',
+  'Tu leche le llega a {bebe} igual por la jeringa. Lo importante ya lo estás consiguiendo.',
+  'Parar cuando estás cansada no es rendirse. Es cuidaros a los dos para el siguiente intento.',
 ]
 
 const paraEl = [
@@ -64,6 +76,10 @@ const paraEl = [
   'Recuérdale que cada ml cuenta, aunque hoy salga poco.',
   'Dile hoy que la quieres y que estás orgulloso de ella. En voz alta y mirándola.',
   'Dale las gracias por algo que haya hecho por {bebe} hoy. Lo notará.',
+  'Si una toma al pecho no sale, quítale hierro: «no pasa nada, luego lo probamos otra vez». Y prepara la jeringa.',
+  'Prepárale el rato de piel con piel: manta, agua cerca y el móvil lejos. Sin prisa ni objetivo.',
+  'Cuando pruebe con el pecho, ni opines ni mires el reloj. Acompáñala y contágiale calma.',
+  'Recuérdale que no coger el pezón no es rechazo: {bebe} está reaprendiendo, y ella lo está haciendo bien.',
 ]
 
 const horaLocal = (ms: number) => Number(new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: 'numeric', hour12: false }).format(new Date(ms)))
