@@ -236,7 +236,7 @@ function ElegirDia({ receta, onCancelar, onPuesto }: { receta: Receta; onCancela
     setError('')
     try {
       await ponerEnMenu(menu.id, dia, momento, receta.slug)
-      onPuesto(`Puesta el ${DIAS[dia].toLowerCase()} (${momento}). La compra del menú no cambia: si hace falta, añade los ingredientes a la lista.`)
+      onPuesto(`Puesta el ${DIAS[dia].toLowerCase()} (${momento}). La lista de la compra se ajusta sola.`)
     } catch (e) {
       setError((e as Error).message)
       setOcupado(false)

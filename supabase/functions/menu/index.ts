@@ -2,10 +2,14 @@
 // con los electrodomésticos y gustos de la casa, y la compra con precios reales del catálogo.
 //   POST {accion: "planear"}                         → crea un menú (en segundo plano)
 //   POST {accion: "receta", menu_id, dia, momento}   → pasos de un plato (bajo demanda)
+//   POST {accion: "compra", menu_id}                 → rehace la compra entera (en segundo plano)
+//   POST {accion: "sincronizar", menu_id, dia?, momento?} → tras cambiar platos: retoca la compra y la lista
+//        solo con lo de esos platos (en segundo plano) y avisa al otro si cambia la mamá
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { zodOutputFormat } from "npm:@anthropic-ai/sdk@1.8.0/helpers/zod";
 import { z } from "npm:zod@4.6.7";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+import webpush from "npm:web-push@3.6.7";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
@@ -432,9 +436,131 @@ async function rehacerCompra(db: SupabaseClient, claude: Anthropic, menuId: stri
   const compra = await elegir(claude, prefs, nuevo, await candidatos(db, nuevo));
   const total = compra.reduce((t, c) => t + c.coste, 0);
   delete nuevo.compra_vieja;
+  delete (nuevo as { cambios?: unknown }).cambios;
   const { compra: _, ...sinCompra } = nuevo;
   await db.from("menus").update({ plan: sinCompra, compra, total: Math.round(total * 100) / 100, paso: null, error: null }).eq("id", menuId);
   return { total };
+}
+
+// ——— Menú dinámico: al cambiar un plato, solo cambia lo de ese plato ———
+type PlatoMenu = z.infer<typeof Plato> & { elegido?: { uid: string; nombre: string; rol: string | null } };
+type Cambio = { dia: number; momento: "almuerzo" | "cena"; antes: PlatoMenu | null; por: string };
+type MenuDin = PlanT & { compra_vieja?: boolean; cambios?: Cambio[]; dias: { dia: string; almuerzo: PlatoMenu; cena: PlatoMenu }[] };
+
+const Diff = z.object({
+  resumen: z.string().describe("Una frase que resume TODA la semana tal como queda (estilo, platos destacados), no el cambio"),
+  quitar: z.array(z.number().int()).describe("Números de las líneas de la compra que hay que quitar o rehacer (porque solo eran para el plato que se va, o cambia la cantidad)"),
+  anadir: z.array(Plan.shape.compra.element).describe("Líneas nuevas: lo que pide el plato nuevo y no está, y las que se rehacen con la cantidad corregida"),
+  platos: z.array(z.object({
+    n: z.number().int().describe("Número del cambio"),
+    ingredientes: z.array(z.string()).describe("Ingredientes con cantidad, solo para los platos escritos a mano; si no, vacío"),
+  })),
+});
+
+const sinCompra = (p: PlatoMenu | null | undefined) => !p || p.etiquetas?.some((e) => e === "Fuera" || e === "Sin compra");
+const textoPlato = (p: PlatoMenu | null | undefined) =>
+  !p ? "(nada)" : sinCompra(p) ? `${p.titulo} (no se cocina en casa: no necesita compra)`
+  : `${p.titulo}${p.ingredientes?.length ? `: ${p.ingredientes.join("; ")}` : " (escrito a mano: deduce sus ingredientes para un plato así)"}`;
+
+async function sincronizar(db: SupabaseClient, claude: Anthropic, menuId: string, hogar: string) {
+  // Va por lotes: si mientras tanto cambian otro plato, se procesa en la vuelta siguiente.
+  for (let vuelta = 0; vuelta < 5; vuelta++) {
+    const { data: menu } = await db.from("menus").select("plan, compra").eq("id", menuId).maybeSingle();
+    const plan = menu?.plan as MenuDin | null;
+    const cambios = plan?.cambios ?? [];
+    if (!plan || !cambios.length) break;
+    const compra = (menu!.compra ?? []) as Compra;
+
+    // Varios cambios del mismo hueco: cuenta el plato de antes del primero y el que hay ahora.
+    const huecos = new Map<string, { dia: number; momento: "almuerzo" | "cena"; antes: PlatoMenu | null }>();
+    for (const c of cambios) {
+      const k = `${c.dia}-${c.momento}`;
+      if (!huecos.has(k)) huecos.set(k, { dia: c.dia, momento: c.momento, antes: c.antes });
+    }
+    const lista = [...huecos.values()].map((h) => ({ ...h, ahora: plan.dias[h.dia]?.[h.momento] as PlatoMenu }))
+      .filter((h) => h.antes?.titulo !== h.ahora?.titulo || sinCompra(h.antes) !== sinCompra(h.ahora));
+
+    let resumen: string | null = null;
+    let nueva = compra, quitadas: Compra = [], nuevas: Compra = [], platos: { dia: number; momento: string; titulo: string; ingredientes: string[] }[] = [];
+    if (lista.length) {
+      const prefs = await leerPrefs(db, hogar);
+      const casa = await textoCasa(db, hogar);
+      const resto = plan.dias.map((d) => `${d.dia}: ${d.almuerzo.titulo} / ${d.cena.titulo}`).join("\n");
+      const r = await claude.messages.parse({
+        model: MODELO,
+        max_tokens: 8000,
+        system: SISTEMA,
+        output_config: { format: zodOutputFormat(Diff) },
+        messages: [{
+          role: "user",
+          content: [textoPrefs(prefs), casa, `Han cambiado platos del menú de la semana (para ${prefs.personas} personas). Ajusta la lista de la compra SOLO a esos cambios:
+quita lo que solo servía para el plato que se va, añade lo que pide el plato nuevo, y si un ingrediente se comparte con otros platos, rehaz esa línea con la cantidad que queda.
+Escribe también el resumen de la semana: una frase que describa toda la semana como queda (no hables del cambio ni de lo que se quita).
+No toques lo demás de la compra (desayunos, después de cenar y los otros platos se quedan igual). Lo que ya hay en casa no se compra.
+
+Cambios:
+${lista.map((h, n) => `${n}. ${DIAS[h.dia]}, ${h.momento}. Antes: ${textoPlato(h.antes)}. Ahora: ${textoPlato(h.ahora)}.`).join("\n")}
+
+Menú completo de la semana tal como queda:
+${resto}
+
+Compra actual:
+${compra.map((c, i) => `${i}. ${c.ingrediente} — ${c.cantidad} (${c.uso})`).join("\n")}`].filter(Boolean).join("\n\n"),
+        }],
+      });
+      if (!r.parsed_output) throw new Error(`Claude no devolvió el ajuste (${r.stop_reason})`);
+      const d = r.parsed_output;
+      resumen = d.resumen;
+      const fuera = new Set(d.quitar.filter((n) => n >= 0 && n < compra.length));
+      quitadas = compra.filter((_, i) => fuera.has(i));
+      if (d.anadir.length) {
+        const parcial = { ...plan, compra: d.anadir };
+        nuevas = await elegir(claude, prefs, parcial, await candidatos(db, parcial));
+      }
+      nueva = [...compra.filter((_, i) => !fuera.has(i)), ...nuevas];
+      platos = d.platos.flatMap((p) => {
+        const h = lista[p.n];
+        return h && !sinCompra(h.ahora) && !h.ahora.ingredientes?.length && p.ingredientes.length
+          ? [{ dia: h.dia, momento: h.momento, titulo: h.ahora.titulo, ingredientes: p.ingredientes.slice(0, 20) }] : [];
+      });
+    }
+    const { error } = await db.rpc("aplicar_cambios_compra", {
+      p_menu: menuId, p_n: cambios.length, p_compra: nueva, p_quitadas: quitadas, p_nuevas: nuevas, p_platos: platos, p_resumen: resumen,
+    });
+    if (error) throw new Error(error.message);
+  }
+  await db.from("menus").update({ sincronizando_at: null, error: null }).eq("id", menuId);
+}
+
+// Aviso al móvil cuando la mamá cambia un plato (o cuando alguien cambia uno que eligió ella).
+async function avisarCambio(db: SupabaseClient, menuId: string, hogar: string, uid: string, dia: number, momento: "almuerzo" | "cena") {
+  const pub = Deno.env.get("VAPID_PUBLIC_KEY"), priv = Deno.env.get("VAPID_PRIVATE_KEY"), sub = Deno.env.get("VAPID_SUBJECT");
+  if (!pub || !priv || !sub) return;
+  const [{ data: menu }, { data: miembros }] = await Promise.all([
+    db.from("menus").select("plan").eq("id", menuId).maybeSingle(),
+    db.from("members").select("user_id, display_name, rol").eq("household_id", hogar),
+  ]);
+  const plan = menu?.plan as MenuDin | null;
+  const plato = plan?.dias?.[dia]?.[momento];
+  const yo = (miembros ?? []).find((m) => m.user_id === uid);
+  if (!plato || !yo) return;
+  const ultimo = [...(plan!.cambios ?? [])].reverse().find((c) => c.dia === dia && c.momento === momento && c.por === uid);
+  const deLaMama = ultimo?.antes?.elegido?.rol === "mama" ? ultimo.antes.elegido.uid : null;
+  const para = (miembros ?? []).filter((m) => m.user_id !== uid && (yo.rol === "mama" || m.user_id === deLaMama));
+  if (!para.length) return;
+  webpush.setVapidDetails(sub, pub, priv);
+  const body = `${yo.display_name} ha cambiado el ${momento} del ${DIAS[dia]}: ${plato.titulo}. La lista ya se está ajustando.`;
+  const { data: subs } = await db.from("push_subscriptions").select("id, endpoint, p256dh, auth").in("user_id", para.map((m) => m.user_id));
+  await Promise.all((subs ?? []).map(async (s) => {
+    try {
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        JSON.stringify({ title: "Cambio en el menú", body, url: "./" }), { TTL: 3600 });
+    } catch (e) {
+      const code = (e as { statusCode?: number }).statusCode;
+      if (code === 404 || code === 410) await db.from("push_subscriptions").delete().eq("id", s.id);
+      else console.error("push", code, (e as Error).message);
+    }
+  }));
 }
 
 Deno.serve(async (req) => {
@@ -536,6 +662,27 @@ Si sobra para otro día, di cuánto guardar y cómo. En «consejo», el truco qu
     EdgeRuntime.waitUntil(rehacerCompra(db, claude, menuId, hogar).catch(async (e) => {
       console.error("compra", e);
       await db.from("menus").update({ paso: null, error: "No se pudo rehacer la compra. Prueba otra vez." }).eq("id", menuId);
+    }));
+    return json({ ok: true }, 202);
+  }
+
+  if (cuerpo.accion === "sincronizar") {
+    const menuId = String(cuerpo.menu_id ?? "");
+    const { data: menu } = await db.from("menus").select("id, plan").eq("id", menuId).eq("household_id", hogar).eq("estado", "listo").maybeSingle();
+    if (!menu) return json({ error: "No encuentro ese menú" }, 404);
+    const { dia, momento } = cuerpo as { dia?: number; momento?: "almuerzo" | "cena" };
+    if (typeof dia === "number" && dia >= 0 && dia < 7 && (momento === "almuerzo" || momento === "cena")) {
+      EdgeRuntime.waitUntil(avisarCambio(db, menuId, hogar, u.user.id, dia, momento).catch((e) => console.error("aviso", e)));
+    }
+    if (!((menu.plan as MenuDin | null)?.cambios?.length)) return json({ ok: true });
+    if (!claude) return sinClave();
+    // Uno a la vez por menú; si uno se quedó colgado, a los 3 minutos se puede retomar.
+    const { data: mio } = await db.from("menus").update({ sincronizando_at: new Date().toISOString(), error: null }).eq("id", menuId)
+      .or(`sincronizando_at.is.null,sincronizando_at.lt.${new Date(Date.now() - 3 * 60_000).toISOString()}`).select("id");
+    if (!mio?.length) return json({ ok: true, en_curso: true }, 202);
+    EdgeRuntime.waitUntil(sincronizar(db, claude, menuId, hogar).catch(async (e) => {
+      console.error("sincronizar", e);
+      await db.from("menus").update({ sincronizando_at: null, error: "No se pudo ajustar la lista al plato nuevo. Prueba otra vez." }).eq("id", menuId);
     }));
     return json({ ok: true }, 202);
   }

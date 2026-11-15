@@ -1,3 +1,4 @@
+import { sincronizar } from './semana'
 import { supabase } from './supabase'
 
 export type Receta = {
@@ -46,6 +47,7 @@ export async function marcarFavorito(recetaId: string, si: boolean) {
 export async function ponerEnMenu(menuId: string, dia: number, momento: 'almuerzo' | 'cena', slug: string) {
   const { error } = await supabase.rpc('poner_receta', { p_menu: menuId, p_dia: dia, p_momento: momento, p_slug: slug })
   if (error) throw error
+  sincronizar(menuId, dia, momento)
 }
 
 // Los ingredientes que mandan en la receta, con el producto del catálogo que mejor sale, a la lista.

@@ -36,6 +36,9 @@ export type Plato = {
   etiquetas: string[]
   ingredientes: string[]
   receta?: Receta
+  recetario?: string
+  /** Quién lo eligió a mano (los que propone el menú no lo llevan). */
+  elegido?: { uid: string; nombre: string; rol: 'mama' | 'papa' | null; at: string }
 }
 export type Receta = { raciones: number; pasos: string[]; consejo: string }
 export type Dia = { dia: string; almuerzo: Plato; cena: Plato }
@@ -54,7 +57,8 @@ export type Menu = {
   estado: 'generando' | 'listo' | 'error'
   paso: string | null
   error: string | null
-  plan: { resumen: string; dias: Dia[]; compra_vieja?: boolean } | null
+  plan: { resumen: string; dias: Dia[]; compra_vieja?: boolean; cambios?: { dia: number; momento: 'almuerzo' | 'cena' }[] } | null
+  sincronizando_at?: string | null
   compra: LineaCompra[] | null
   total: number | null
   created_at: string
@@ -132,17 +136,34 @@ async function llamar<T>(cuerpo: Record<string, unknown>): Promise<T> {
 }
 
 export const planear = () => llamar<{ id: string }>({ accion: 'planear' })
-/** Pone en el menú lo que escribáis, o «comemos fuera». */
-export async function ponerPlato(menuId: string, dia: number, momento: 'almuerzo' | 'cena', titulo: string, fuera = false) {
-  const { error } = await supabase.rpc('poner_plato', { p_menu: menuId, p_dia: dia, p_momento: momento, p_titulo: titulo, p_fuera: fuera })
+/** Pone en el menú lo que escribáis, «comemos fuera / pedimos» (fuera) o «lo que haya en casa» (sinCompra). */
+export async function ponerPlato(menuId: string, dia: number, momento: 'almuerzo' | 'cena', titulo: string, o: { fuera?: boolean; sinCompra?: boolean } = {}) {
+  const { error } = await supabase.rpc('poner_plato', {
+    p_menu: menuId, p_dia: dia, p_momento: momento, p_titulo: titulo, p_fuera: !!o.fuera, p_sin_compra: !!o.sinCompra,
+  })
+  if (error) throw new Error(error.message)
+  sincronizar(menuId, dia, momento)
+}
+
+/** Cambia el plato de un día por el de otro (mismo momento). La compra no cambia. */
+export async function intercambiarDias(menuId: string, momento: 'almuerzo' | 'cena', dia: number, otro: number) {
+  const { error } = await supabase.rpc('intercambiar_dias', { p_menu: menuId, p_momento: momento, p_dia: dia, p_otro: otro })
   if (error) throw new Error(error.message)
 }
 
-export type TituloReceta = { slug: string; titulo: string; momento: 'almuerzo' | 'cena' }
+/**
+ * Tras cambiar un plato: la función ajusta la compra y la lista solo con lo de ese plato, en segundo plano,
+ * y avisa al otro si el cambio lo hace la mamá. No se espera: la app se entera por realtime.
+ */
+export function sincronizar(menuId: string, dia?: number, momento?: 'almuerzo' | 'cena') {
+  void llamar({ accion: 'sincronizar', menu_id: menuId, dia, momento }).catch((e) => console.warn('sincronizar', e))
+}
+
+export type TituloReceta = { slug: string; titulo: string; momento: 'almuerzo' | 'cena'; etiquetas: string[]; minutos: number }
 let titulos: Promise<TituloReceta[]> | null = null
 /** Títulos del recetario para sugerir al cambiar un plato (se piden una vez). */
 export function titulosRecetario() {
-  titulos ??= Promise.resolve(supabase.from('recetario').select('slug, titulo, momento').order('titulo')).then(({ data, error }) => {
+  titulos ??= Promise.resolve(supabase.from('recetario').select('slug, titulo, momento, etiquetas, minutos').order('titulo')).then(({ data, error }) => {
     if (error) {
       titulos = null
       throw new Error(error.message)
