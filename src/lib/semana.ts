@@ -79,6 +79,26 @@ export function lunesDeEstaSemana(): string {
   return hoy.toISOString().slice(0, 10)
 }
 
+const masDias = (iso: string, n: number) => {
+  const d = new Date(`${iso}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+const diaMes = (iso: string, mes: boolean) =>
+  new Intl.DateTimeFormat('es-ES', { day: 'numeric', ...(mes ? { month: 'short' } : {}), timeZone: 'UTC' }).format(new Date(`${iso}T12:00:00Z`))
+
+// «Esta semana · 16–22 nov», «Desde mañana · 16–22 nov» o «23–29 nov»: siempre con fechas, sin ambigüedad.
+export function nombreSemana(semana: string): string {
+  const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'Atlantic/Canary' }).format(new Date())
+  const fin = masDias(semana, 6)
+  const rango = semana.slice(5, 7) === fin.slice(5, 7)
+    ? `${diaMes(semana, false)}–${diaMes(fin, true)}`
+    : `${diaMes(semana, true)} – ${diaMes(fin, true)}`
+  if (hoy >= semana && hoy <= fin) return `Esta semana · ${rango}`
+  if (semana === masDias(hoy, 1)) return `Desde mañana · ${rango}`
+  return rango
+}
+
 // Los menús de esta semana en adelante (el último hecho de cada semana), por orden de semana.
 // Si no hay ninguno vigente, el último que haya.
 export async function menusVigentes(): Promise<Menu[]> {

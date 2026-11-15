@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { cargarRecetario, ingredientesALista, marcarFavorito, ponerEnMenu, type Precio, type Receta } from '../lib/recetario'
-import { lunesDeEstaSemana, menusVigentes, type Menu } from '../lib/semana'
+import { menusVigentes, nombreSemana, type Menu } from '../lib/semana'
 import { euros } from '../lib/super'
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -227,7 +227,6 @@ function ElegirDia({ receta, onCancelar, onPuesto }: { receta: Receta; onCancela
     )
   }
   const menu = menus.find((m) => m.id === menuId) ?? menus[0]
-  const esteLunes = lunesDeEstaSemana()
   const actual = dia != null ? menu.plan?.dias[dia]?.[momento]?.titulo : undefined
 
   async function poner() {
@@ -249,7 +248,7 @@ function ElegirDia({ receta, onCancelar, onPuesto }: { receta: Receta; onCancela
         <div className="opciones-chips" role="group" aria-label="Semana">
           {menus.map((m) => (
             <button key={m.id} type="button" className={`chip-claro${m.id === menu.id ? ' activo' : ''}`} aria-pressed={m.id === menu.id} onClick={() => setMenuId(m.id)}>
-              {m.semana === esteLunes ? 'Esta semana' : 'La que viene'}
+              {nombreSemana(m.semana)}
             </button>
           ))}
         </div>
