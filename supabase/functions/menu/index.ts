@@ -193,13 +193,44 @@ type Compra = Awaited<ReturnType<typeof elegir>>;
 type RecetaLibro = {
   id: string; slug: string; titulo: string; cocina: string; momento: "almuerzo" | "cena"; minutos: number; aparato: string;
   etiquetas: string[]; ingredientes: string[]; pasos: string[]; truco: string; conservacion: string; sobras: boolean; congela: boolean;
-  coste: string; meses: number[] | null; raciones: number;
+  coste: string; meses: number[] | null; raciones: number; claves: { q: string }[];
 };
+type Precio = { coste: number; oferta: boolean; ofertas: string[] };
+
+// Coste estimado de cada receta con los precios de hoy; «oferta» = el ingrediente principal está rebajado.
+async function preciosRecetario(db: SupabaseClient, libro: RecetaLibro[]) {
+  const { data } = await db.rpc("recetario_costes");
+  const principal = new Map(libro.map((r) => [r.slug, r.claves?.[0]?.q]));
+  return new Map(((data ?? []) as { slug: string; coste: number; ofertas: string[] }[]).map((c) => [
+    c.slug,
+    { coste: Number(c.coste), oferta: !!principal.get(c.slug) && c.ofertas.includes(principal.get(c.slug)!), ofertas: c.ofertas },
+  ]));
+}
+
+// Lo que está rebajado esta semana en fresco y básicos (HiperDino publica el precio de antes).
+const CATEGORIAS_OFERTA = ["Carne", "Pescado y marisco", "Fruta", "Verduras y hortalizas", "Charcuteria al corte", "Quesos al corte",
+  "Legumbres cocidas", "Legumbres", "Pasta", "Arroz", "Huevos", "Aves"];
+// Lactancia: ni atún grande (salvo el claro de lata), ni pez espada/emperador, tiburón/cazón/marrajo o lucio.
+const MERCURIO = /(at[uú]n(?! claro)|pez espada|emperador|tibur[oó]n|caz[oó]n|marrajo|lucio)/i;
+async function ofertas(db: SupabaseClient) {
+  const { data } = await db.from("productos").select("nombre, formato, precio, precio_antes, precio_unidad, unidad, super")
+    .eq("activo", true).not("precio_antes", "is", null).in("categoria", CATEGORIAS_OFERTA).limit(400);
+  return ((data ?? []) as { nombre: string; formato: string | null; precio: number; precio_antes: number; precio_unidad: number | null; unidad: string | null; super: string }[])
+    .map((p) => ({ ...p, baja: 1 - Number(p.precio) / Number(p.precio_antes) }))
+    .filter((p) => p.baja >= 0.08 && !MERCURIO.test(p.nombre))
+    .sort((a, b) => b.baja - a.baja)
+    .slice(0, 25);
+}
+function textoOfertas(o: Awaited<ReturnType<typeof ofertas>>) {
+  if (!o.length) return "";
+  return `Ofertas de esta semana (aprovéchalas si encajan; la carne o el pescado caros, solo si están aquí):
+${o.map((p) => `- ${p.nombre}${p.formato && !p.formato.startsWith("al peso") ? `, ${p.formato}` : ""}: ${euros(Number(p.precio))}${p.formato?.startsWith("al peso") ? "/kg" : ""} (antes ${euros(Number(p.precio_antes))}, −${Math.round(p.baja * 100)} %)`).join("\n")}`;
+}
 const norm = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
 const VACIAS = new Set(["con", "de", "del", "la", "las", "los", "el", "y", "a", "al", "en", "o", "un", "una", "casero", "casera"]);
 const claves = (t: string) => norm(t).split(/\s+/).filter((w) => w.length > 3 && !VACIAS.has(w));
 
-function seleccionar(libro: RecetaLibro[], o: {
+function seleccionar(libro: RecetaLibro[], precios: Map<string, Precio>, o: {
   favoritos: Set<string>; gustaron: string[]; noGustaron: string[]; recientes: string[]; notas: string; aparatos: string[]; mes: number;
 }) {
   const parecido = (a: string, b: string) => {
@@ -218,6 +249,10 @@ function seleccionar(libro: RecetaLibro[], o: {
       if (claves(r.titulo).slice(0, 2).some((w) => notas.includes(w))) p += 2;
       if (r.meses && r.meses.includes(o.mes)) p += 1;
       if (o.recientes.some((t) => parecido(r.titulo, t))) p -= 4;
+      const pr = precios.get(r.slug);
+      if (pr?.oferta) p += 1.5;
+      if (r.coste === "oferta" && !pr?.oferta) p -= 6; // filete y similares: solo con oferta
+      if (pr) p -= Math.max(0, pr.coste - 4) * 0.4; // lo caro, algo menos a menudo
       return { r, p };
     })
     .sort((a, b) => b.p - a.p);
@@ -234,13 +269,16 @@ function seleccionar(libro: RecetaLibro[], o: {
   return [...almuerzos, ...cenas];
 }
 
-function textoRecetario(sel: RecetaLibro[]) {
+function textoRecetario(sel: RecetaLibro[], precios: Map<string, Precio>) {
   if (!sel.length) return "";
-  const linea = (r: RecetaLibro) =>
-    `- [${r.slug}] ${r.titulo} · ${r.cocina} · ${r.minutos} min · ${r.aparato}${r.coste === "oferta" ? " · solo si hay oferta" : ""}${r.sobras ? " · da para otro día" : ""}
+  const linea = (r: RecetaLibro) => {
+    const pr = precios.get(r.slug);
+    const coste = pr ? ` · ≈ ${euros(pr.coste)} para 2${pr.oferta ? ` · DE OFERTA: ${pr.ofertas[0]}` : ""}` : "";
+    return `- [${r.slug}] ${r.titulo} · ${r.cocina} · ${r.minutos} min · ${r.aparato}${coste}${r.coste === "oferta" ? " · solo si hay oferta" : ""}${r.sobras ? " · da para otro día" : ""}
   Ingredientes (2 raciones): ${r.ingredientes.join("; ")}. Clave: ${r.truco}`;
+  };
   return `Recetario de la casa (platos probados con buena técnica; úsalos como inspiración y repite los favoritos, pero no hace falta usarlos todos
-ni solo estos). Si pones un plato tal cual, copia su título y pon su código en «recetario» (y sus ingredientes, ajustando cantidades):
+ni solo estos; el coste es orientativo con los precios de hoy). Si pones un plato tal cual, copia su título y pon su código en «recetario» (y sus ingredientes, ajustando cantidades):
 ALMUERZOS
 ${sel.filter((r) => r.momento === "almuerzo").map(linea).join("\n")}
 CENAS
@@ -293,11 +331,13 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
       db.from("recetario_favoritos").select("receta_id").eq("household_id", householdId),
     ]);
     const mes = Number(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, month: "numeric" }).format(new Date()));
-    const recetario = textoRecetario(seleccionar((libro ?? []) as RecetaLibro[], {
+    const libroT = (libro ?? []) as RecetaLibro[];
+    const [precios, rebajas] = await Promise.all([preciosRecetario(db, libroT), ofertas(db)]);
+    const recetario = [textoOfertas(rebajas), textoRecetario(seleccionar(libroT, precios, {
       favoritos: new Set((favs ?? []).map((f) => f.receta_id as string)),
       gustaron: gustaron.map((g) => g.titulo), noGustaron: noGustaron.map((g) => g.titulo),
       recientes, notas: prefs.notas, aparatos: prefs.electrodomesticos, mes,
-    }));
+    }), precios)].filter(Boolean).join("\n\n");
 
     await paso("Pensando los platos");
     let plan = await planear(claude, prefs, recientes, recetario);
