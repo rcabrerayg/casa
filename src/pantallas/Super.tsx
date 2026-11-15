@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import Semana from './Semana'
+import Recetario from './Recetario'
 import { supabase } from '../lib/supabase'
 import {
   buscar, cargarLista, ofertas, equivalente, escucharLista, euros, NOMBRE, repartir, SUPERS, textoLista,
@@ -85,6 +86,8 @@ function Fila({ l, abierta, onAbrir, onCambio }: { l: Linea; abierta: boolean; o
   )
 }
 
+type Vista = 'semana' | 'recetas' | 'lista'
+
 export default function Super({ member }: { member: Member }) {
   const [items, setItems] = useState<Item[]>([])
   const [productos, setProductos] = useState<Map<string, Producto>>(new Map())
@@ -95,8 +98,15 @@ export default function Super({ member }: { member: Member }) {
   const [aviso, setAviso] = useState('')
   const [verComprados, setVerComprados] = useState(false)
   const [rebajas, setRebajas] = useState<Producto[] | null>(null)
-  const [vista, setVista] = useState<'semana' | 'lista'>(() => (localStorage.getItem('casa-comida') as 'semana' | 'lista') ?? 'semana')
-  const irA = (v: 'semana' | 'lista') => {
+  const [vista, setVista] = useState<Vista>(() => {
+    try {
+      const v = localStorage.getItem('casa-comida')
+      return v === 'lista' || v === 'recetas' ? v : 'semana'
+    } catch {
+      return 'semana'
+    }
+  })
+  const irA = (v: Vista) => {
     setVista(v)
     try {
       localStorage.setItem('casa-comida', v)
@@ -225,6 +235,10 @@ export default function Super({ member }: { member: Member }) {
           <>
             La semana, <span className="cursiva">resuelta.</span>
           </>
+        ) : vista === 'recetas' ? (
+          <>
+            Cocina de <span className="cursiva">casa.</span>
+          </>
         ) : (
           <>
             La compra, <span className="cursiva">repartida.</span>
@@ -232,12 +246,14 @@ export default function Super({ member }: { member: Member }) {
         )}
       </h1>
       <div className="sm-segmento" role="tablist">
-        <button role="tab" aria-selected={vista === 'semana'} onClick={() => irA('semana')}>Menú de la semana</button>
+        <button role="tab" aria-selected={vista === 'semana'} onClick={() => irA('semana')}>Menú</button>
+        <button role="tab" aria-selected={vista === 'recetas'} onClick={() => irA('recetas')}>Recetas</button>
         <button role="tab" aria-selected={vista === 'lista'} onClick={() => irA('lista')}>
           Lista{pendientes.length ? ` · ${pendientes.length}` : ''}
         </button>
       </div>
       {vista === 'semana' && <Semana member={member} onIrALista={() => irA('lista')} />}
+      {vista === 'recetas' && <Recetario onIrALista={() => irA('lista')} onIrAlMenu={() => irA('semana')} />}
       {vista === 'lista' && (
       <>
 

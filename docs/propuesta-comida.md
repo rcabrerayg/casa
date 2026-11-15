@@ -83,7 +83,7 @@ sobró. La lista no vuelve al menú. Las recetas solo se ven dentro de un plato.
 |---|-----|-----------------|--------|
 | 1 | Guardar la clave de Claude y probar el plan de punta a punta | Sin ella, nada nuevo se puede comprobar | S |
 | 2 | ~~Ofertas y coste por plato en el planificador~~ (hecho, PR #13) | Más sabor por el mismo dinero, menos reajustes | M |
-| 3 | Pantalla Recetario, favoritos y cambiar un plato | Usa lo que ya está en la base de datos | M |
+| 3 | ~~Pantalla Recetario, favoritos y cambiar un plato~~ (hecho, PR #14; «otra idea con Claude» queda pendiente de la clave) | Usa lo que ya está en la base de datos | M |
 | 4 | Despensa y congelador, enlazados a sobras y lista | Cierra el círculo y evita tirar comida | L |
 | 5 | Modo cocina | Calidad de vida diaria | S |
 | 6 | Aprendizaje por slug y cocina, «lo hicimos» | Mejora sola con el uso | S |
