@@ -145,22 +145,13 @@ export function escucharMenus(householdId: string, alCambiar: () => void) {
   }
 }
 
-// Pasa la compra del menú a la lista: sustituye lo que quedara sin comprar de menús anteriores.
+// Pasa la compra del menú a la lista: lo que ya hay en casa no se compra (y se descuenta del inventario),
+// y sustituye lo que quedara sin comprar de menús anteriores.
 export async function pasarALista(menu: Menu) {
-  const { error: e1 } = await supabase.from('lista_items').delete().not('menu_id', 'is', null).is('comprado_at', null)
-  if (e1) throw e1
-  const filas = (menu.compra ?? []).map((c) => ({
-    texto: (c.producto?.nombre ?? `${c.ingrediente} (${c.cantidad})`).slice(0, 120),
-    cantidad: Math.max(1, Math.min(99, c.unidades)),
-    producto_id: c.producto?.id ?? null,
-    super_fijo: c.por_regla && c.producto ? c.producto.super : null,
-    menu_id: menu.id,
-  }))
-  if (filas.length) {
-    const { error } = await supabase.from('lista_items').insert(filas)
-    if (error) throw error
-  }
-  return filas.length
+  const { data, error } = await supabase.rpc('menu_a_lista', { p_menu: menu.id })
+  if (error) throw error
+  const r = (data as { anadidos: number; de_casa: string[] }[] | null)?.[0]
+  return { anadidos: r?.anadidos ?? 0, deCasa: r?.de_casa ?? [] }
 }
 
 // Lo que opináis de cada plato. El planificador lo usa para aprender.

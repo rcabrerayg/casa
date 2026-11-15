@@ -232,3 +232,19 @@ p.sp-nota { padding: 0; }
 .rc-fav.si { color: #B8461F; }
 .rc-elegir { padding: 12px; border: 1px solid var(--linea); border-radius: 12px; }
 @media (max-width: 380px) { .sm-detalle { padding-left: 0; } }
+
+/* ——— Casa (inventario) ——— */
+.ca-resumen { align-items: center; }
+.ca-frase { font-size: 15px; line-height: 1.4; margin-top: 6px !important; }
+.ca-repuesto ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+.ca-sugerencia { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-top: 1px solid var(--linea); }
+.ca-lugar { margin: 18px 0 4px; }
+.ca-bajo .sp-nombre small { color: #B8461F; }
+.ca-pasos { display: flex; gap: 6px; flex-shrink: 0; }
+.ca-pasos button { width: 40px; height: 40px; border: 1px solid var(--linea); border-radius: 10px; background: var(--papel); font-size: 18px; cursor: pointer; }
+.ca-pasos button:disabled { opacity: .35; cursor: default; }
+.ca-detalle { padding-left: 0; }
+.ca-editor input { height: 44px; padding: 0 12px; border: 1px solid var(--linea); border-radius: 10px; background: var(--papel); font-size: 16px; width: 100%; }
+.ca-borrar { color: #B3261E; margin-left: auto; }
+
+.ca-editor .etiqueta { font-size: 13px; color: var(--tinta-2); }
