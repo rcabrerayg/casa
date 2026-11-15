@@ -39,6 +39,7 @@ function indiceHoy(semana: string) {
 
 export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida }: Props) {
   const [eventos, setEventos] = useState<BabyEvent[]>([])
+  const [cargado, setCargado] = useState(false)
   const [ahora, setAhora] = useState(Date.now())
   const [plato, setPlato] = useState<{ momento: 'almuerzo' | 'cena'; plato: Plato } | null>(null)
   const [compra, setCompra] = useState<Linea[]>([])
@@ -49,6 +50,7 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
   const cargarBebe = useCallback(async () => {
     await vaciarCola()
     setEventos(conPendientes(await cargar(bebe.id)))
+    setCargado(true)
     setAhora(Date.now())
   }, [bebe.id])
 
@@ -127,7 +129,7 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span className="gran-numero">{actual ? `${minutos(actual.at, ahora)} min` : ultima ? hace(ultima.at, ahora) : '—'}</span>
             <span style={{ fontSize: 15, color: '#CFCFD4' }}>
-              {actual ? 'dando el pecho ahora' : ultima ? 'desde la última toma' : 'aún no hay tomas apuntadas'}
+              {actual ? 'dando el pecho ahora' : ultima ? 'desde la última toma' : cargado ? 'aún no hay tomas apuntadas' : 'cargando…'}
             </span>
           </div>
           {ultima && !actual && <span className="ahora-que">{queFue(ultima)}</span>}

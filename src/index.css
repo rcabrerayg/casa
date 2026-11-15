@@ -153,11 +153,12 @@ a { color: var(--tinta); }
 .tarjeta-noche .boton.secundario { background: transparent; }
 
 /* ——— Ahora ——— */
-.gran-numero { font-family: var(--display); font-size: 56px; font-weight: 400; letter-spacing: -.05em; line-height: .9; font-variant-numeric: tabular-nums; }
-.ahora-toma { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
-.ahora-que { font-family: var(--serif); font-style: italic; font-size: 22px; line-height: 1.1; color: var(--senal); text-align: right; }
+.gran-numero { white-space: nowrap; font-family: var(--display); font-size: 56px; font-weight: 400; letter-spacing: -.05em; line-height: .9; font-variant-numeric: tabular-nums; }
+.ahora-toma { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 12px; }
+.ahora-que { font-family: var(--serif); font-style: italic; font-size: 22px; line-height: 1.1; color: var(--senal); text-align: right; flex: 1 1 120px; }
 .animo-frase { margin: 2px 4px; font-family: var(--serif); font-style: italic; font-size: 21px; line-height: 1.3; color: var(--tinta-2); }
 .dos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dos .boton { padding: 0 10px; }
 .tres { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 
 /* ——— Darío ——— */
