@@ -261,7 +261,7 @@ export default function Bebe({ member, bebe, mama, panelInicial, onPanelAbierto 
               {(sugerido || prox) && (
                 <div className="pistas">
                   {sugerido ? <span className="toca">le toca el {nombreLado(sugerido)}</span> : <span />}
-                  {prox && <span>próxima, hacia las {hora(prox)}</span>}
+                  {prox && <span>{Date.parse(prox) > ahora ? 'próxima, hacia las' : 'ya le toca, desde las'} {hora(prox)}</span>}
                 </div>
               )}
             </section>
