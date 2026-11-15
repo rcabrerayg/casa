@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  APARATOS, cargarPrefs, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, ultimoMenu,
-  type Menu, type Plato, type Prefs, type Receta,
+  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, ultimoMenu, votar,
+  type Menu, type Plato, type Prefs, type Receta, type Voto,
 } from '../lib/semana'
 import { euros, NOMBRE, SUPERS } from '../lib/super'
 
@@ -100,7 +100,17 @@ function Ajustes({ inicial, onGuardado, onCancelar }: { inicial: Prefs; onGuarda
   )
 }
 
-function FilaPlato({ menuId, dia, momento, plato }: { menuId: string; dia: number; momento: 'almuerzo' | 'cena'; plato: Plato }) {
+type FilaProps = {
+  menuId: string
+  dia: number
+  momento: 'almuerzo' | 'cena'
+  plato: Plato
+  voto?: Voto
+  onVotar: (titulo: string, momento: 'almuerzo' | 'cena', v: Voto | null) => void
+}
+
+function FilaPlato({ menuId, dia, momento, plato, voto, onVotar }: FilaProps) {
+  const sobras = plato.etiquetas.includes('Sobras')
   const [abierto, setAbierto] = useState(false)
   const [receta, setReceta] = useState<Receta | undefined>(plato.receta)
   const [cargando, setCargando] = useState(false)
@@ -124,6 +134,7 @@ function FilaPlato({ menuId, dia, momento, plato }: { menuId: string; dia: numbe
         <span className="sm-momento">{momento === 'almuerzo' ? 'Almuerzo' : 'Cena'}</span>
         <span className="sp-nombre">
           {plato.titulo}
+          {voto && <span className={`sm-voto-marca${voto < 0 ? ' no' : ''}`}>{voto > 0 ? ' · os gustó' : ' · no repetir'}</span>}
           <small>{[`${plato.minutos} min`, plato.aparato].filter(Boolean).join(' · ')}</small>
         </span>
       </button>
@@ -149,6 +160,16 @@ function FilaPlato({ menuId, dia, momento, plato }: { menuId: string; dia: numbe
             </button>
           )}
           {error && <p className="error">{error}</p>}
+          {!sobras && (
+            <div className="sm-votos" role="group" aria-label="¿Qué tal este plato?">
+              <button type="button" className={`chip-claro${voto === 1 ? ' activo' : ''}`} aria-pressed={voto === 1} onClick={() => onVotar(plato.titulo, momento, voto === 1 ? null : 1)}>
+                Nos gustó
+              </button>
+              <button type="button" className={`chip-claro${voto === -1 ? ' activo' : ''}`} aria-pressed={voto === -1} onClick={() => onVotar(plato.titulo, momento, voto === -1 ? null : -1)}>
+                No repetir
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -162,6 +183,25 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
   const [aviso, setAviso] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const [verCompra, setVerCompra] = useState(false)
+  const [votos, setVotos] = useState<Map<string, Voto>>(new Map())
+
+  useEffect(() => {
+    void cargarVotos().then(setVotos)
+  }, [])
+
+  async function cambiarVoto(titulo: string, momento: 'almuerzo' | 'cena', v: Voto | null) {
+    const antes = votos
+    const nuevo = new Map(votos)
+    if (v) nuevo.set(titulo, v)
+    else nuevo.delete(titulo)
+    setVotos(nuevo)
+    try {
+      await votar(titulo, momento, v)
+    } catch (e) {
+      setVotos(antes)
+      setAviso((e as Error).message)
+    }
+  }
 
   const recargar = useCallback(async () => setMenu(await ultimoMenu()), [])
 
@@ -246,14 +286,15 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
             <button className="boton" onClick={() => void aLaLista()} disabled={ocupado}>A la lista</button>
           </section>
           <p className="cursiva sm-resumen-texto">{menu.plan!.resumen}</p>
+          <p className="apagado sm-pista">Abre un plato y dime si os gustó o no lo repetiríais: lo tendré en cuenta en las próximas semanas.</p>
 
           {menu.plan!.dias.map((d, i) => (
             <section className="sm-dia" key={i}>
               <h2 className="ceja">
                 {DIAS[i]} · {fechaCorta(menu.semana, i)}
               </h2>
-              <FilaPlato menuId={menu.id} dia={i} momento="almuerzo" plato={d.almuerzo} />
-              <FilaPlato menuId={menu.id} dia={i} momento="cena" plato={d.cena} />
+              <FilaPlato menuId={menu.id} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onVotar={cambiarVoto} />
+              <FilaPlato menuId={menu.id} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onVotar={cambiarVoto} />
             </section>
           ))}
           <p className="apagado sm-fijos">

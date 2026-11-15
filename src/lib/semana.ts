@@ -123,3 +123,16 @@ export async function pasarALista(menu: Menu) {
   }
   return filas.length
 }
+
+// Lo que opináis de cada plato. El planificador lo usa para aprender.
+export type Voto = 1 | -1
+export async function cargarVotos(): Promise<Map<string, Voto>> {
+  const { data } = await supabase.from('valoraciones').select('titulo, voto')
+  return new Map((data ?? []).map((v) => [v.titulo as string, v.voto as Voto]))
+}
+export async function votar(titulo: string, momento: 'almuerzo' | 'cena', voto: Voto | null) {
+  const { error } = voto
+    ? await supabase.from('valoraciones').upsert({ titulo, momento, voto, updated_at: new Date().toISOString() })
+    : await supabase.from('valoraciones').delete().eq('titulo', titulo)
+  if (error) throw error
+}
