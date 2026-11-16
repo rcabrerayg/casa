@@ -24,6 +24,12 @@ function igual(a: string, b: string) {
 const horaLocal = (d: Date) => Number(new Intl.DateTimeFormat("es-ES", { timeZone: TZ, hour: "numeric", hour12: false }).format(d));
 const hhmm = (iso: string) =>
   new Intl.DateTimeFormat("es-ES", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
+// Un uuid fijo para cada comida (el registro de avisos guarda uuid).
+async function uuidDe(texto: string) {
+  const h = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto)))].slice(0, 16)
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
 function duracion(min: number) {
   const h = Math.floor(min / 60);
   const m = min % 60;
@@ -48,14 +54,14 @@ Deno.serve(async (req) => {
   const deNoche = horaLocal(ahora) < 7;
   const [{ data: casas, error: e1 }, { data: miembros, error: e2 }, { data: bebes, error: e3 }] = await Promise.all([
     db.from("households").select("id, toma_cada_min, saca_cada_min"),
-    db.from("members").select("user_id, household_id, display_name, rol, aviso_tomas, aviso_saca, aviso_noche"),
+    db.from("members").select("user_id, household_id, display_name, rol, aviso_tomas, aviso_saca, aviso_noche, aviso_comidas"),
     db.from("people").select("id, household_id, name").eq("kind", "bebe"),
   ]);
 
   let enviados = 0;
   const errores: string[] = [e1, e2, e3].filter(Boolean).map((e) => e!.message);
 
-  async function avisar(userId: string, tipo: "toma" | "saca", refId: string, title: string, body: string) {
+  async function avisar(userId: string, tipo: "toma" | "saca" | "comida", refId: string, title: string, body: string) {
     // Primero se reserva el aviso: si ya existía, no se manda otra vez.
     const { data: nuevo, error } = await db
       .from("avisos_enviados")
@@ -120,6 +126,31 @@ Deno.serve(async (req) => {
               : `${mama} lleva ${duracion(min)} sin sacarse leche. Buen momento para prepararle el sacaleches y un vaso de agua.`,
           );
         }
+      }
+    }
+  }
+
+  // Después de comer (16:00) y de cenar (22:00): «¿comisteis…?». Un aviso por comida y persona.
+  const hora = horaLocal(ahora);
+  const momento = hora === 16 ? "almuerzo" : hora === 22 ? "cena" : null;
+  if (momento) {
+    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(ahora);
+    const d = new Date(`${hoy}T12:00:00Z`);
+    const dia = (d.getUTCDay() + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - dia);
+    const { data: menus, error } = await db.from("menus").select("id, household_id, plan").eq("semana", d.toISOString().slice(0, 10))
+      .eq("estado", "listo").order("created_at", { ascending: false });
+    if (error) errores.push(error.message);
+    const vistos = new Set<string>();
+    for (const m of menus ?? []) {
+      if (vistos.has(m.household_id)) continue; // el último menú de la semana de cada casa
+      vistos.add(m.household_id);
+      const plato = m.plan?.dias?.[dia]?.[momento] as { titulo: string; etiquetas?: string[]; hecho?: unknown } | undefined;
+      if (!plato || plato.hecho || plato.etiquetas?.some((e) => e === "Fuera" || e === "Sin compra")) continue;
+      const ref = await uuidDe(`${m.id}-${dia}-${momento}`);
+      for (const p of (miembros ?? []).filter((x) => x.household_id === m.household_id && x.aviso_comidas !== false)) {
+        await avisar(p.user_id, "comida", ref, `¿Qué tal ${momento === "almuerzo" ? "el almuerzo" : "la cena"}?`,
+          `¿Comisteis ${plato.titulo}? Cuéntalo con un toque: así el menú aprende lo que os gusta y la lista cuadra.`);
       }
     }
   }

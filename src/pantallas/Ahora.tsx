@@ -5,7 +5,8 @@ import {
   type BabyEvent, type Person,
 } from '../lib/bebe'
 import { mensajes } from '../lib/animo'
-import { lunesDeEstaSemana, menusVigentes, type Plato } from '../lib/semana'
+import { lunesDeEstaSemana, menusVigentes, sinCocinar, sinConfirmar, type Menu, type Plato } from '../lib/semana'
+import { Comimos } from './Comimos'
 import { cargarLista, escucharLista, euros, NOMBRE, repartir, type Linea } from '../lib/super'
 import { IcoAjustes, IcoFlecha } from '../componentes/Iconos'
 import { Cargador, Logo } from '../componentes/Logo'
@@ -43,6 +44,8 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
   const [cargado, setCargado] = useState(false)
   const [ahora, setAhora] = useState(Date.now())
   const [plato, setPlato] = useState<{ momento: 'almuerzo' | 'cena'; plato: Plato } | null>(null)
+  const [menu, setMenu] = useState<Menu | null>(null)
+  const [preguntando, setPreguntando] = useState(false)
   const [compra, setCompra] = useState<Linea[]>([])
   const [cada, setCada] = useState(SACAR_CADA_MIN)
   const c = cabecera(ahora)
@@ -90,13 +93,17 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
     }
   }, [bebe.id, member.household_id, cargarBebe, cargarCompra])
 
-  useEffect(() => {
+  const cargarMenu = useCallback(() => {
     void menusVigentes().then((ms) => {
       const m = ms.find((x) => x.semana === lunesDeEstaSemana() && x.estado === 'listo' && x.plan)
       const d = m?.plan?.dias[indiceHoy(m.semana)]
+      setMenu(m ?? null)
       setPlato(d ? { momento, plato: d[momento] } : null)
     })
   }, [momento])
+  useEffect(cargarMenu, [cargarMenu])
+  // La comida más reciente que ya tocaba y nadie ha confirmado.
+  const porConfirmar = menu ? sinConfirmar(menu).at(-1) : undefined
 
   const tomas = eventos.filter((e) => e.kind === 'toma')
   const ultima = tomas[0]
@@ -168,11 +175,22 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
 
       {animo && <p className="animo-frase">{animo.texto}</p>}
 
+      {porConfirmar && menu && (
+        <button className="tarjeta cm-tarjeta" onClick={() => setPreguntando(true)}>
+          <span className="ceja">{porConfirmar.momento === 'almuerzo' ? 'Almuerzo' : 'Cena'} {porConfirmar.dia === indiceHoy(menu.semana) ? 'de hoy' : `del ${['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'][porConfirmar.dia]}`}</span>
+          <span className="grande">¿Comisteis {porConfirmar.plato.titulo}?</span>
+          <span className="detalle">Un toque y el menú y la lista cuadran con lo que de verdad comisteis</span>
+        </button>
+      )}
+      {preguntando && porConfirmar && menu && (
+        <Comimos menu={menu} dia={porConfirmar.dia} momento={porConfirmar.momento} plato={porConfirmar.plato} onCerrar={() => { setPreguntando(false); cargarMenu() }} />
+      )}
+
       {plato && (
         <button className="tarjeta" onClick={() => onComida('menu')}>
           <span className="ceja">{plato.momento === 'almuerzo' ? 'Almuerzo' : 'Cena'} de hoy</span>
           <span className="grande">{plato.plato.titulo}</span>
-          <span className="detalle">{[`${plato.plato.minutos} min`, plato.plato.aparato, 'ver receta'].filter(Boolean).join(' · ')}</span>
+          <span className="detalle">{sinCocinar(plato.plato) ? 'sin cocinar' : [`${plato.plato.minutos} min`, plato.plato.aparato, 'ver receta'].filter(Boolean).join(' · ')}</span>
         </button>
       )}
 

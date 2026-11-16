@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase, type Member } from '../lib/supabase'
 
-type Prefs = { aviso_tomas: boolean; aviso_saca: boolean | null; aviso_noche: boolean }
+type Prefs = { aviso_tomas: boolean; aviso_saca: boolean | null; aviso_noche: boolean; aviso_comidas: boolean }
 type Casa = { toma_cada_min: number; saca_cada_min: number }
 
 const horas = (min: number) => {
@@ -16,7 +16,7 @@ export default function AjustesAvisos({ member }: { member: Member }) {
   const [guardado, setGuardado] = useState('')
 
   useEffect(() => {
-    supabase.from('members').select('aviso_tomas, aviso_saca, aviso_noche').eq('user_id', member.user_id).single().then(({ data }) => setP(data))
+    supabase.from('members').select('aviso_tomas, aviso_saca, aviso_noche, aviso_comidas').eq('user_id', member.user_id).single().then(({ data }) => setP(data))
     supabase.from('households').select('toma_cada_min, saca_cada_min').eq('id', member.household_id).single().then(({ data }) => setC(data))
   }, [member.user_id, member.household_id])
 
@@ -55,6 +55,13 @@ export default function AjustesAvisos({ member }: { member: Member }) {
             <small>Un aviso suave a las {horas(c.saca_cada_min)} sin extraer</small>
           </span>
           <input type="checkbox" checked={sacaActivo} onChange={(e) => cambiarPrefs({ aviso_saca: e.target.checked })} />
+        </label>
+        <label className="interruptor">
+          <span>
+            <b>Comidas</b>
+            <small>«¿Qué tal?» a las 16:00 y a las 22:00, para que el menú aprenda y la lista cuadre</small>
+          </span>
+          <input type="checkbox" checked={p.aviso_comidas} onChange={(e) => cambiarPrefs({ aviso_comidas: e.target.checked })} />
         </label>
         <label className="interruptor">
           <span>
