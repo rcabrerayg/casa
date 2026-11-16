@@ -2,6 +2,7 @@ import { Cargador } from '../componentes/Logo'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import Semana from './Semana'
+import { lunesDeEstaSemana, menusVigentes, sinConfirmar } from '../lib/semana'
 import Recetario from './Recetario'
 import { IcoVolver } from '../componentes/Iconos'
 import Despensa from './Casa'
@@ -111,6 +112,15 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
     }
   })
   const [recetario, setRecetario] = useState(false)
+  // Comidas de días pasados que nadie ha confirmado: si no se cocinaron, sus ingredientes siguen en la lista.
+  const [sinVer, setSinVer] = useState(0)
+  useEffect(() => {
+    if (vista !== 'lista') return
+    void menusVigentes().then((ms) => {
+      const m = ms.find((x) => x.semana === lunesDeEstaSemana())
+      setSinVer(m && !m.plan?.compra_vieja ? sinConfirmar(m).length : 0)
+    })
+  }, [vista])
   const irA = (v: VistaComida) => {
     setVista(v)
     setRecetario(false)
@@ -271,6 +281,14 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
       {vista === 'despensa' && <Despensa onIrALista={() => irA('lista')} />}
       {vista === 'lista' && (
       <>
+      {sinVer > 0 && pendientes.length > 0 && (
+        <section className="sm-aviso-compra" role="status">
+          <p>
+            {sinVer === 1 ? 'Hay una comida' : `Hay ${sinVer} comidas`} de esta semana sin confirmar. Si no se cocinó, sus ingredientes siguen en la lista: dímelo antes de comprar.
+          </p>
+          <button className="boton claro" onClick={() => irA('menu')}>Revisar el menú</button>
+        </section>
+      )}
 
       <div className="sp-buscar">
         <input

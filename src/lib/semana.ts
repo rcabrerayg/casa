@@ -39,6 +39,8 @@ export type Plato = {
   recetario?: string
   /** Quién lo eligió a mano (los que propone el menú no lo llevan). */
   elegido?: { uid: string; nombre: string; rol: 'mama' | 'papa' | null; at: string }
+  /** Si se comió (si) o no (se pasó a otro día o se quitó). */
+  hecho?: { si: boolean; at: string; por: string }
 }
 export type Receta = { raciones: number; pasos: string[]; consejo: string }
 export type Dia = { dia: string; almuerzo: Plato; cena: Plato }
@@ -57,7 +59,14 @@ export type Menu = {
   estado: 'generando' | 'listo' | 'error'
   paso: string | null
   error: string | null
-  plan: { resumen: string; dias: Dia[]; compra_vieja?: boolean; cambios?: { dia: number; momento: 'almuerzo' | 'cena' }[] } | null
+  plan: {
+    resumen: string
+    dias: Dia[]
+    compra_vieja?: boolean
+    cambios?: { dia: number; momento: 'almuerzo' | 'cena' }[]
+    /** Platos que se quedaron sin cocinar: el menú siguiente los tiene en cuenta. */
+    pendientes?: (Plato & { momento?: 'almuerzo' | 'cena' })[]
+  } | null
   sincronizando_at?: string | null
   compra: LineaCompra[] | null
   total: number | null
@@ -198,15 +207,89 @@ export async function pasarALista(menu: Menu) {
   return { anadidos: r?.anadidos ?? 0, deCasa: r?.de_casa ?? [] }
 }
 
-// Lo que opináis de cada plato. El planificador lo usa para aprender.
-export type Voto = 1 | -1
-export async function cargarVotos(): Promise<Map<string, Voto>> {
-  const { data } = await supabase.from('valoraciones').select('titulo, voto')
-  return new Map((data ?? []).map((v) => [v.titulo as string, v.voto as Voto]))
-}
-export async function votar(titulo: string, momento: 'almuerzo' | 'cena', voto: Voto | null) {
-  const { error } = voto
-    ? await supabase.from('valoraciones').upsert({ titulo, momento, voto, updated_at: new Date().toISOString() })
-    : await supabase.from('valoraciones').delete().eq('titulo', titulo)
+// Lo que opina cada uno de cada plato: -1 no repetir, 0 normal, 1 bien, 2 le encantó. El planificador aprende de esto.
+export type Voto = -1 | 0 | 1 | 2
+export const VOTOS: [Voto, string, string][] = [
+  [2, '😍', 'Me encantó'],
+  [1, '👍', 'Bien'],
+  [0, '😐', 'Normal'],
+  [-1, '👎', 'No repetir'],
+]
+export type Opinion = { id: string; user_id: string | null; titulo: string; momento: 'almuerzo' | 'cena' | null; voto: Voto; fuente: 'voto' | 'cambio'; created_at: string }
+export async function cargarOpiniones(): Promise<Opinion[]> {
+  const { data, error } = await supabase.from('opiniones').select('id, user_id, titulo, momento, voto, fuente, created_at')
+    .order('created_at', { ascending: false }).limit(500)
   if (error) throw error
+  return (data ?? []) as Opinion[]
+}
+/** Mis votos, por título. */
+export const misVotos = (ops: Opinion[], uid: string) =>
+  new Map(ops.filter((o) => o.fuente === 'voto' && o.user_id === uid).map((o) => [o.titulo, o.voto]))
+export async function opinar(titulo: string, momento: 'almuerzo' | 'cena' | null, voto: Voto | null) {
+  const { error } = await supabase.rpc('opinar', { p_titulo: titulo, p_momento: momento, p_voto: voto })
+  if (error) throw new Error(error.message)
+}
+export async function olvidarOpiniones(ids: string[]) {
+  const { error } = await supabase.from('opiniones').delete().in('id', ids)
+  if (error) throw new Error(error.message)
+}
+
+// Antojos: lo que a alguien le apetece. El próximo menú los incluye (los de la mamá, primero).
+export type Antojo = { id: string; user_id: string | null; texto: string; usado_en: string | null; created_at: string }
+export async function cargarAntojos(): Promise<Antojo[]> {
+  const { data, error } = await supabase.from('antojos').select('id, user_id, texto, usado_en, created_at')
+    .is('usado_en', null).order('created_at')
+  if (error) throw error
+  return (data ?? []) as Antojo[]
+}
+export async function apuntarAntojo(texto: string) {
+  const { error } = await supabase.from('antojos').insert({ texto: texto.trim() })
+  if (error) throw new Error(error.message)
+}
+export async function quitarAntojo(id: string) {
+  const { error } = await supabase.from('antojos').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// ¿Se comió lo del menú?
+export const sinCocinar = (p: Plato) => p.etiquetas.includes('Fuera') || p.etiquetas.includes('Sin compra')
+export async function marcarComida(menuId: string, dia: number, momento: 'almuerzo' | 'cena', si: boolean | null) {
+  const { error } = await supabase.rpc('marcar_comida', { p_menu: menuId, p_dia: dia, p_momento: momento, p_si: si })
+  if (error) throw new Error(error.message)
+}
+/** No lo comimos: «pasar» lo corre al día siguiente (la compra no cambia); «quitar» lo saca y la lista se ajusta sola. */
+export async function noComimos(menuId: string, dia: number, momento: 'almuerzo' | 'cena', que: 'pasar' | 'quitar', titulo: string) {
+  const { error } = await supabase.rpc('no_comimos', { p_menu: menuId, p_dia: dia, p_momento: momento, p_que: que, p_titulo: titulo })
+  if (error) throw new Error(error.message)
+  if (que === 'quitar') sincronizar(menuId)
+}
+/** Sobró: las sobras ocupan los n huecos siguientes y lo que había allí sale de la lista (queda para la semana siguiente). */
+export async function haySobras(menuId: string, dia: number, momento: 'almuerzo' | 'cena', n: number) {
+  const { data, error } = await supabase.rpc('hay_sobras', { p_menu: menuId, p_dia: dia, p_momento: momento, p_n: n })
+  if (error) throw new Error(error.message)
+  if (data) sincronizar(menuId)
+  return data as number
+}
+
+/** Hora (Canarias) a partir de la cual se pregunta si se comió: 15:00 el almuerzo, 21:30 la cena. */
+export function yaTocaba(semana: string, dia: number, momento: 'almuerzo' | 'cena', ahora = new Date()) {
+  const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'Atlantic/Canary' }).format(ahora)
+  const d = new Date(`${semana}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + dia)
+  const fecha = d.toISOString().slice(0, 10)
+  if (fecha !== hoy) return fecha < hoy
+  const [h, m] = new Intl.DateTimeFormat('en-GB', { timeZone: 'Atlantic/Canary', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ahora).split(':').map(Number)
+  return h * 60 + m >= (momento === 'almuerzo' ? 15 * 60 : 21 * 60 + 30)
+}
+/** Comidas que ya tocaban y nadie ha confirmado (las que se cocinan). */
+export function sinConfirmar(menu: Menu) {
+  const r: { dia: number; momento: 'almuerzo' | 'cena'; plato: Plato }[] = []
+  if (menu.estado !== 'listo' || !menu.plan) return r
+  menu.plan.dias.forEach((d, dia) => {
+    for (const momento of ['almuerzo', 'cena'] as const) {
+      const plato = d[momento]
+      if (!plato.hecho && !sinCocinar(plato) && yaTocaba(menu.semana, dia, momento)) r.push({ dia, momento, plato })
+    }
+  })
+  return r
 }

@@ -3,10 +3,11 @@ import Hoja from '../componentes/Hoja'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
-  APARATOS, cargarPrefs, cargarVotos, escucharMenus, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, nombreSemana, ponerPlato, rehacerCompra, sincronizar, titulosRecetario, votar, intercambiarDias,
+  VOTOS, APARATOS, cargarPrefs, cargarOpiniones, escucharMenus, misVotos, sinCocinar, yaTocaba, GUSTOS, guardarPrefs, pasarALista, pedirReceta, planear, PREFS_INICIALES, lunesDeEstaSemana, menusVigentes, nombreSemana, ponerPlato, rehacerCompra, sincronizar, titulosRecetario, intercambiarDias,
   type Menu, type Plato, type Prefs, type Receta, type TituloReceta, type Voto,
 } from '../lib/semana'
 import { ponerEnMenu } from '../lib/recetario'
+import { Comimos, Gustos } from './Comimos'
 import { euros, NOMBRE, SUPERS } from '../lib/super'
 
 const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -256,14 +257,16 @@ type FilaProps = {
   momento: 'almuerzo' | 'cena'
   plato: Plato
   voto?: Voto
-  onVotar: (titulo: string, momento: 'almuerzo' | 'cena', v: Voto | null) => void
+  onOpinado: (titulo: string, v: Voto | null) => void
 }
 
-function FilaPlato({ menu, member, dia, momento, plato, voto, onVotar }: FilaProps) {
+function FilaPlato({ menu, member, dia, momento, plato, voto, onOpinado }: FilaProps) {
   const menuId = menu.id
-  const sobras = plato.etiquetas.includes('Sobras')
-  const fuera = plato.etiquetas.includes('Fuera') || plato.etiquetas.includes('Sin compra')
+  const sobras = plato.etiquetas.includes('Sobras') || /^sobras/i.test(plato.titulo)
+  const fuera = sinCocinar(plato)
+  const pregunta = !fuera && !plato.hecho && yaTocaba(menu.semana, dia, momento)
   const [abierto, setAbierto] = useState(false)
+  const [comimos, setComimos] = useState(false)
   const [cambiando, setCambiando] = useState(false)
   const [receta, setReceta] = useState<Receta | undefined>(plato.receta)
   const [cargando, setCargando] = useState(false)
@@ -287,13 +290,18 @@ function FilaPlato({ menu, member, dia, momento, plato, voto, onVotar }: FilaPro
         <span className="sm-momento">{momento === 'almuerzo' ? 'Almuerzo' : 'Cena'}</span>
         <span className="sp-nombre">
           {plato.titulo}
-          {voto && <span className={`sm-voto-marca${voto < 0 ? ' no' : ''}`}>{voto > 0 ? ' · os gustó' : ' · no repetir'}</span>}
+          {voto != null && <span className={`sm-voto-marca${voto < 0 ? ' no' : ''}`}> {VOTOS.find(([v]) => v === voto)?.[1]}</span>}
           <small>
             {plato.etiquetas.includes('Fuera') ? 'fuera de casa' : plato.etiquetas.includes('Sin compra') ? 'sin compra' : [plato.minutos > 0 && `${plato.minutos} min`, plato.aparato].filter(Boolean).join(' · ') || 'escrito por vosotros'}
             {plato.elegido && <span className={`sm-eligio${plato.elegido.rol === 'mama' ? ' mama' : ''}`}> · lo eligió {plato.elegido.uid === member.user_id ? 'tú' : plato.elegido.nombre}</span>}
+            {plato.hecho?.si && ' · comido'}
           </small>
         </span>
       </button>
+      {pregunta && (
+        <button className="cm-pregunta" onClick={() => setComimos(true)}>¿Lo comisteis?</button>
+      )}
+      {comimos && <Comimos menu={menu} dia={dia} momento={momento} plato={plato} voto={voto} onOpinado={onOpinado} onCerrar={() => setComimos(false)} />}
       {abierto && (
         <div className="sm-detalle">
           {plato.ingredientes.length > 0 && (
@@ -320,15 +328,10 @@ function FilaPlato({ menu, member, dia, momento, plato, voto, onVotar }: FilaPro
           {error && <p className="error">{error}</p>}
           <button className="chip" onClick={() => setCambiando(true)}>Cambiar plato</button>
           {cambiando && <CambiarPlato menu={menu} dia={dia} momento={momento} plato={plato} member={member} onCerrar={() => setCambiando(false)} />}
-          {!sobras && !fuera && (
-            <div className="sm-votos" role="group" aria-label="¿Qué tal este plato?">
-              <button type="button" className={`chip${voto === 1 ? ' activo' : ''}`} aria-pressed={voto === 1} onClick={() => onVotar(plato.titulo, momento, voto === 1 ? null : 1)}>
-                Nos gustó
-              </button>
-              <button type="button" className={`chip${voto === -1 ? ' activo' : ''}`} aria-pressed={voto === -1} onClick={() => onVotar(plato.titulo, momento, voto === -1 ? null : -1)}>
-                No repetir
-              </button>
-            </div>
+          {!sobras && !fuera && plato.hecho?.si && (
+            <button className="chip" onClick={() => setComimos(true)}>
+              {voto != null ? `${VOTOS.find(([v]) => v === voto)?.[1]} ${VOTOS.find(([v]) => v === voto)?.[2]}` : '¿Qué tal estaba?'}
+            </button>
           )}
         </div>
       )}
@@ -346,23 +349,19 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
   const [rehaciendo, setRehaciendo] = useState(false)
   const [verCompra, setVerCompra] = useState(false)
   const [votos, setVotos] = useState<Map<string, Voto>>(new Map())
+  const [gustos, setGustos] = useState(false)
 
   useEffect(() => {
-    void cargarVotos().then(setVotos)
-  }, [])
+    void cargarOpiniones().then((ops) => setVotos(misVotos(ops, member.user_id)), () => {})
+  }, [member.user_id])
 
-  async function cambiarVoto(titulo: string, momento: 'almuerzo' | 'cena', v: Voto | null) {
-    const antes = votos
-    const nuevo = new Map(votos)
-    if (v) nuevo.set(titulo, v)
-    else nuevo.delete(titulo)
-    setVotos(nuevo)
-    try {
-      await votar(titulo, momento, v)
-    } catch (e) {
-      setVotos(antes)
-      setAviso((e as Error).message)
-    }
+  function opinado(titulo: string, v: Voto | null) {
+    setVotos((x) => {
+      const n = new Map(x)
+      if (v == null) n.delete(titulo)
+      else n.set(titulo, v)
+      return n
+    })
   }
 
   const recargar = useCallback(async () => setMenus(await menusVigentes()), [])
@@ -526,15 +525,16 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
             </section>
           )}
           <p className="cursiva sm-resumen-texto">{menu.plan!.resumen}</p>
-          <p className="apagado sm-pista">Abre un plato para cambiarlo por lo que os apetezca, o para decirme si os gustó: lo tendré en cuenta en las próximas semanas.</p>
+          <p className="apagado sm-pista">Abre un plato para cambiarlo por lo que os apetezca. Después de cada comida os pregunto qué tal: así cada semana acierto más.</p>
+          <button className="chip cm-abrir-gustos" onClick={() => setGustos(true)}>Me apetece… · antojos y gustos</button>
 
           {menu.plan!.dias.map((d, i) => (
             <section className={`sm-dia${menu.semana === esteLunes && i === hoyIdx ? ' hoy' : ''}`} key={i}>
               <h2 className="ceja">
                 {DIAS[i]} · {fechaCorta(menu.semana, i)}
               </h2>
-              <FilaPlato key={`a-${d.almuerzo.titulo}`} menu={menu} member={member} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onVotar={cambiarVoto} />
-              <FilaPlato key={`c-${d.cena.titulo}`} menu={menu} member={member} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onVotar={cambiarVoto} />
+              <FilaPlato key={`a-${d.almuerzo.titulo}`} menu={menu} member={member} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onOpinado={opinado} />
+              <FilaPlato key={`c-${d.cena.titulo}`} menu={menu} member={member} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onOpinado={opinado} />
             </section>
           ))}
           <p className="apagado sm-fijos">
@@ -590,6 +590,7 @@ export default function Semana({ member, onIrALista }: { member: Member; onIrALi
           <button className="enlace" onClick={() => setEditando(true)}>Tu cocina y gustos</button>
         </div>
       )}
+      {gustos && <Gustos member={member} menu={menu} onCerrar={() => setGustos(false)} />}
     </>
   )
 }

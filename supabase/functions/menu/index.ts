@@ -162,7 +162,8 @@ async function elegir(claude: Anthropic, prefs: Prefs, plan: PlanT, porItem: Pro
     model: MODELO,
     max_tokens: 16000,
     system: SISTEMA,
-    output_config: { format: zodOutputFormat(Eleccion) },
+    thinking: { type: "disabled" },
+    output_config: { format: zodOutputFormat(Eleccion), effort: "medium" },
     messages: [{
       role: "user",
       content: `Elige qué producto comprar para cada ingrediente de la lista. Criterios, por orden:
@@ -325,11 +326,69 @@ ${recientes.length ? `Evita repetir estos de semanas anteriores: ${recientes.joi
     model: MODELO,
     max_tokens: 16000,
     system: SISTEMA,
-    output_config: { format: zodOutputFormat(Plan) },
+    // Haiku 5.5 piensa por defecto y ese pensamiento cuenta en max_tokens: con el plan se lo comía entero
+    // y no llegaba a escribir nada. Aquí no hace falta: sale un JSON guiado por el esquema.
+    thinking: { type: "disabled" },
+    output_config: { format: zodOutputFormat(Plan), effort: "medium" },
     messages: [{ role: "user", content: [textoPrefs(prefs), recetario, pedido].filter(Boolean).join("\n\n") }],
   });
   if (!r.parsed_output) throw new Error(`Claude no devolvió el plan (${r.stop_reason})`);
   return r.parsed_output;
+}
+
+// Lo aprendido de la casa: opiniones de cada uno (lo de la mamá cuenta doble; los cambios de plato, flojito),
+// antojos pendientes y platos que se quedaron sin cocinar la semana anterior.
+type Opinion = { user_id: string | null; titulo: string; momento: string | null; voto: number; fuente: "voto" | "cambio" };
+async function aprendido(db: SupabaseClient, hogar: string, pendientes: { titulo: string; momento?: string }[]) {
+  const [{ data: ops }, { data: gente }, { data: antojos }] = await Promise.all([
+    db.from("opiniones").select("user_id, titulo, momento, voto, fuente").eq("household_id", hogar)
+      .order("created_at", { ascending: false }).limit(400),
+    db.from("members").select("user_id, display_name, rol").eq("household_id", hogar),
+    db.from("antojos").select("id, texto, user_id").eq("household_id", hogar).is("usado_en", null).order("created_at").limit(12),
+  ]);
+  const quien = new Map((gente ?? []).map((g) => [g.user_id as string, g as { display_name: string; rol: string | null }]));
+  const esMama = (uid: string | null) => !!uid && quien.get(uid)?.rol === "mama";
+  const puntos = new Map<string, { titulo: string; momento: string | null; p: number }>();
+  for (const o of (ops ?? []) as Opinion[]) {
+    const peso = (o.fuente === "cambio" ? 0.4 : 1) * (esMama(o.user_id) ? 2 : 1);
+    const x = puntos.get(o.titulo) ?? { titulo: o.titulo, momento: o.momento, p: 0 };
+    x.p += o.voto * peso;
+    puntos.set(o.titulo, x);
+  }
+  const todos = [...puntos.values()].filter((x) => !/^sobras/i.test(x.titulo));
+  const gustaron = todos.filter((x) => x.p >= 1).sort((a, b) => b.p - a.p).slice(0, 40);
+  const noGustaron = todos.filter((x) => x.p <= -1).slice(0, 40);
+  const conMomento = (v: { titulo: string; momento: string | null }) => (v.momento ? `${v.titulo} (${v.momento})` : v.titulo);
+
+  // Por persona, solo lo que votó (no los cambios): para que Claude entienda el gusto de cada uno.
+  const porPersona = [...quien.entries()]
+    .sort(([, a], [, b]) => Number(b.rol === "mama") - Number(a.rol === "mama"))
+    .map(([uid, g]) => {
+      const suyos = ((ops ?? []) as Opinion[]).filter((o) => o.user_id === uid && o.fuente === "voto");
+      const lista = (v: number) => suyos.filter((o) => o.voto === v).slice(0, 15).map((o) => o.titulo).join("; ");
+      const partes = [
+        lista(2) && `le encantan: ${lista(2)}`,
+        lista(1) && `le gustan: ${lista(1)}`,
+        lista(-1) && `no le apetecen: ${lista(-1)}`,
+      ].filter(Boolean);
+      return partes.length ? `- ${g.display_name}${g.rol === "mama" ? " (mamá, de postparto: lo suyo manda)" : ""}: ${partes.join(" · ")}.` : "";
+    }).filter(Boolean);
+
+  const nombre = (uid: string | null) => (uid && quien.get(uid)?.display_name) || "alguien";
+  const ants = (antojos ?? []) as { id: string; texto: string; user_id: string | null }[];
+  const pend = pendientes.slice(-4);
+  const texto = [
+    porPersona.length ? `Lo que opina cada uno:\n${porPersona.join("\n")}` : "",
+    gustaron.length ? `Platos que gustan en casa (pueden repetirse alguno y sirven de pista de su estilo): ${gustaron.map(conMomento).join("; ")}.` : "",
+    noGustaron.length ? `Platos que NO quieren repetir (ni versiones muy parecidas): ${noGustaron.map(conMomento).join("; ")}.` : "",
+    pend.length
+      ? `Se quedaron sin cocinar la semana pasada (puede que ya haya ingredientes en casa): ponlos en los primeros días: ${pend.map((p) => p.titulo).join("; ")}.`
+      : "",
+  ].filter(Boolean).join("\n");
+  const obligatorio = ants.length
+    ? `OBLIGATORIO esta semana: cada uno de estos antojos tiene que ser un almuerzo o una cena del menú, con la idea en el título (si es vaga, concrétala en una receta): ${ants.map((a) => `«${a.texto}» (${nombre(a.user_id)}${esMama(a.user_id) ? ", mamá: el primero" : ""})`).join("; ")}.`
+    : "";
+  return { gustaron, noGustaron, texto, obligatorio, antojos: ants };
 }
 
 async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, householdId: string, prefs: Prefs) {
@@ -337,20 +396,13 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
   try {
     const { data: previos } = await db.from("menus").select("plan").eq("household_id", householdId).eq("estado", "listo")
       .order("created_at", { ascending: false }).limit(2);
-    const { data: votos } = await db.from("valoraciones").select("titulo, voto, momento").eq("household_id", householdId)
-      .order("updated_at", { ascending: false }).limit(80);
-    const gustaron = (votos ?? []).filter((v) => v.voto > 0);
-    const noGustaron = (votos ?? []).filter((v) => v.voto < 0);
-    const conMomento = (v: { titulo: string; momento: string | null }) => (v.momento ? `${v.titulo} (${v.momento})` : v.titulo);
+    const aprende = await aprendido(db, householdId, (previos?.[0]?.plan as MenuDin | null)?.pendientes ?? []);
+    const { gustaron, noGustaron } = aprende;
     // Los que gustaron pueden volver; el resto de semanas recientes, mejor variar.
     const recientes = (previos ?? []).flatMap((m) =>
       ((m.plan as PlanT | null)?.dias ?? []).flatMap((d) => [d.almuerzo.titulo, d.cena.titulo])
-    ).filter((t) => !gustaron.some((g) => g.titulo === t));
-    const aprendido = [
-      gustaron.length ? `Platos que les gustaron (pueden repetirse alguno y sirven de pista de su estilo): ${gustaron.map(conMomento).join("; ")}.` : "",
-      noGustaron.length ? `Platos que NO quieren repetir (ni versiones muy parecidas): ${noGustaron.map(conMomento).join("; ")}.` : "",
-    ].filter(Boolean).join("\n");
-    if (aprendido) prefs = { ...prefs, notas: [prefs.notas, aprendido].filter(Boolean).join("\n") };
+    ).filter((t) => !gustaron.some((g) => g.titulo === t) && !/^sobras/i.test(t));
+    if (aprende.texto) prefs = { ...prefs, notas: [prefs.notas, aprende.texto].filter(Boolean).join("\n") };
 
     const [{ data: libro }, { data: favs }] = await Promise.all([
       db.from("recetario").select("*"),
@@ -364,7 +416,7 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
       favoritos: new Set((favs ?? []).map((f) => f.receta_id as string)),
       gustaron: gustaron.map((g) => g.titulo), noGustaron: noGustaron.map((g) => g.titulo),
       recientes, notas: prefs.notas, aparatos: prefs.electrodomesticos, mes,
-    }), precios)].filter(Boolean).join("\n\n");
+    }), precios), aprende.obligatorio].filter(Boolean).join("\n\n");
 
     await paso("Pensando los platos");
     let plan = await planear(claude, prefs, recientes, recetario);
@@ -381,6 +433,10 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
     }
 
     await db.from("menus").update({ estado: "listo", paso: null, plan, compra, total: Math.round(total * 100) / 100 }).eq("id", menuId);
+    // Solo cuentan como usados los antojos que de verdad han entrado en el menú; el resto sigue para la próxima.
+    const titulos = plan.dias.flatMap((d) => [d.almuerzo.titulo, d.cena.titulo]).map((t) => new Set(claves(t)));
+    const usados = aprende.antojos.filter((a) => claves(a.texto).some((w) => titulos.some((t) => t.has(w))));
+    if (usados.length) await db.from("antojos").update({ usado_en: menuId }).in("id", usados.map((a) => a.id));
   } catch (e) {
     console.error("menu", e);
     const msg = e instanceof Anthropic.AuthenticationError
@@ -445,7 +501,7 @@ async function rehacerCompra(db: SupabaseClient, claude: Anthropic, menuId: stri
 // ——— Menú dinámico: al cambiar un plato, solo cambia lo de ese plato ———
 type PlatoMenu = z.infer<typeof Plato> & { elegido?: { uid: string; nombre: string; rol: string | null } };
 type Cambio = { dia: number; momento: "almuerzo" | "cena"; antes: PlatoMenu | null; por: string };
-type MenuDin = PlanT & { compra_vieja?: boolean; cambios?: Cambio[]; dias: { dia: string; almuerzo: PlatoMenu; cena: PlatoMenu }[] };
+type MenuDin = PlanT & { compra_vieja?: boolean; cambios?: Cambio[]; pendientes?: { titulo: string; momento?: string }[]; dias: { dia: string; almuerzo: PlatoMenu; cena: PlatoMenu }[] };
 
 const Diff = z.object({
   resumen: z.string().describe("Una frase que resume TODA la semana tal como queda (estilo, platos destacados), no el cambio"),
