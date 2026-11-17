@@ -315,9 +315,15 @@ ${sel.filter((r) => r.momento === "cena").map(linea).join("\n")}`;
 
 async function planear(claude: Anthropic, prefs: Prefs, recientes: string[], recetario: string, ajuste?: { plan: PlanT; compra: Compra; total: number }) {
   const pedido = ajuste
-    ? `Este plan se pasa del presupuesto: cuesta ${euros(ajuste.total)} y el tope es ${euros(prefs.presupuesto)}.
-Lo más caro de la compra: ${[...ajuste.compra].sort((a, b) => b.coste - a.coste).slice(0, 8).map((c) => `${c.ingrediente} ${euros(c.coste)}`).join("; ")}.
-Rehaz la semana para que quede por debajo, cambiando lo justo (ingredientes más baratos, más legumbre, huevo o pollo, reaprovechar).
+    ? `Este plan se pasa del presupuesto: la compra cuesta ${euros(ajuste.total)} y el tope es ${euros(prefs.presupuesto)}.
+Objetivo: que la compra no pase de ${euros(prefs.presupuesto * 0.9)} (los precios reales suelen salir algo más altos de lo que calculas).
+Lo más caro de la compra: ${[...ajuste.compra].sort((a, b) => b.coste - a.coste).slice(0, 10).map((c) => `${c.ingrediente} ${euros(c.coste)} (${c.uso})`).join("; ")}.
+Rehaz la semana para que quede por debajo:
+- Cambia los platos que usan lo más caro por platos baratos de verdad: legumbre, huevo, pollo entero o muslos, arroz, pasta, patata, verdura de temporada.
+- Reaprovecha: que varios platos compartan ingredientes para no comprar envases que sobran (un paquete de nata, un queso, una bandeja de carne…).
+- Mete uno o dos días de sobras («… (del lunes)»): no suman compra.
+- Cantidades justas para las personas que son; desayunos y lo de después de cenar, lo más sencillo.
+Mantén los platos baratos que ya había.
 Plan anterior: ${JSON.stringify({ dias: ajuste.plan.dias.map((d) => ({ dia: d.dia, almuerzo: d.almuerzo.titulo, cena: d.cena.titulo })) })}`
     : `Planifica la semana: almuerzo y cena de lunes a domingo, y la lista de la compra completa de la semana (incluidos desayunos y lo de después de cenar).
 Que no se repitan platos dentro de la semana (salvo días de sobras, que se titulan «… (del lunes)»).
@@ -422,15 +428,27 @@ async function generar(db: SupabaseClient, claude: Anthropic, menuId: string, ho
     await paso("Pensando los platos");
     let plan = await planear(claude, prefs, recientes, recetario);
     await paso("Buscando precios");
-    let compra = await elegir(claude, prefs, plan, await candidatos(db, plan));
+    const tope = { euros: prefs.presupuesto };
+    let productos = await candidatos(db, plan);
+    let compra = await elegir(claude, prefs, plan, productos, tope);
     let total = compra.reduce((t, c) => t + c.coste, 0);
+    const pasa = () => total > prefs.presupuesto * 1.03;
 
-    if (total > prefs.presupuesto * 1.03) {
-      await paso("Ajustando al presupuesto");
+    // Hasta dos vueltas rehaciendo los platos más caros; se queda siempre la versión más barata.
+    for (let vuelta = 0; vuelta < 2 && pasa(); vuelta++) {
+      await paso(vuelta ? "Afinando el presupuesto" : "Ajustando al presupuesto");
       const plan2 = await planear(claude, prefs, recientes, recetario, { plan, compra, total });
-      const compra2 = await elegir(claude, prefs, plan2, await candidatos(db, plan2));
+      const productos2 = await candidatos(db, plan2);
+      const compra2 = await elegir(claude, prefs, plan2, productos2, tope);
       const total2 = compra2.reduce((t, c) => t + c.coste, 0);
-      if (total2 < total) [plan, compra, total] = [plan2, compra2, total2];
+      if (total2 < total) [plan, productos, compra, total] = [plan2, productos2, compra2, total2];
+    }
+    // Último recurso sin cambiar platos: envases más pequeños y marca blanca.
+    if (pasa()) {
+      await paso("Buscando envases más baratos");
+      const compra2 = await elegir(claude, prefs, plan, productos, { ...tope, estricto: true });
+      const total2 = compra2.reduce((t, c) => t + c.coste, 0);
+      if (total2 < total) [compra, total] = [compra2, total2];
     }
 
     await db.from("menus").update({ estado: "listo", paso: null, plan, compra, total: Math.round(total * 100) / 100 }).eq("id", menuId);
