@@ -470,3 +470,28 @@ p.sp-nota { padding: 0; }
 .deshacer { position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 6px 6px 16px; border-radius: 14px; background: var(--primario); color: var(--sobre-primario); box-shadow: var(--sombra); font-size: 15px; animation: aparece .18s ease-out; }
 .deshacer button { min-height: 44px; padding: 0 14px; border: none; border-radius: 10px; background: transparent; color: var(--senal); font: inherit; font-weight: 600; cursor: pointer; }
 @media (max-width: 380px) { .cm-rapida.en-fila { padding-left: 0; } }
+
+/* ——— Menú como la maqueta: tira de días y una tarjeta por comida ——— */
+.sm-tira { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.sm-tira-dia { position: relative; min-height: 52px; border: none; border-radius: 12px; background: var(--superficie); color: var(--tinta); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: pointer; padding: 0; }
+.sm-tira-dia span { font-size: 12px; }
+.sm-tira-dia b { font-family: var(--display); font-size: 17px; font-weight: 500; }
+.sm-tira-dia[aria-selected="true"] { background: var(--primario); color: var(--sobre-primario); }
+.sm-tira-dia.hoy:not([aria-selected="true"]) { box-shadow: inset 0 0 0 1.5px var(--tinta); }
+.sm-tira-dia.falta::after { content: ''; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--senal); }
+.sm-tarjeta { background: var(--superficie); border: 1px solid var(--linea); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 6px; scroll-margin-top: 12px; }
+.sm-t-titulo { font-size: 19px; font-weight: 500; line-height: 1.25; }
+.sm-t-meta { font-size: 14px; color: var(--tinta-2); }
+.sm-t-botones { display: flex; gap: 8px; margin-top: 6px; }
+.sm-t-botones .boton { min-height: 44px; padding: 0 16px; border-radius: 12px; font-size: 15px; }
+.sm-tarjeta .sm-detalle { padding: 6px 0 0; }
+.sm-tarjeta .cm-rapida.en-fila { padding: 4px 0 0; }
+.sm-semana { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px; }
+.sm-semana p { margin: 0; display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; }
+.sm-semana-cifra { font-family: var(--display); font-variant-numeric: tabular-nums; }
+.sm-semana-cifra small { font-family: var(--texto); font-size: 14px; color: var(--tinta-3); }
+.sm-semana-cifra.pasado, .sm-semana-cifra.pasado small { color: var(--peligro); }
+.sm-barra { height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; display: block; }
+.sm-barra span { display: block; height: 100%; background: var(--senal); border-radius: 3px; }
+.sm-barra span.pasado { background: var(--peligro); }
+.sm-recetario { min-height: 48px; border-radius: 14px; }

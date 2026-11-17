@@ -290,8 +290,7 @@ export default function Super({ member, vistaInicial, onVistaUsada, foco, onFoco
       </div>
       {vista === 'menu' && !recetario && (
         <>
-          <Semana member={member} onIrALista={() => irA('lista')} foco={foco} onFocoUsado={onFocoUsado} />
-          <button className="chip" style={{ alignSelf: 'flex-start' }} onClick={() => { setRecetario(true); window.scrollTo(0, 0) }}>Recetario</button>
+          <Semana member={member} onIrALista={() => irA('lista')} foco={foco} onFocoUsado={onFocoUsado} onRecetario={() => { setRecetario(true); window.scrollTo(0, 0) }} />
         </>
       )}
       {vista === 'menu' && recetario && (

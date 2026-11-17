@@ -179,6 +179,11 @@ function CambiarPlato({ menu, dia, momento, plato, member, onCerrar }: CambiarPr
 }
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+const fechaISO = (iso: string, mas = 0) => {
+  const d = new Date(`${iso}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + mas)
+  return d.toISOString().slice(0, 10)
+}
 const fechaCorta = (iso: string, mas = 0) => {
   const d = new Date(`${iso}T12:00:00Z`)
   d.setUTCDate(d.getUTCDate() + mas)
@@ -292,6 +297,7 @@ function FilaPlato({ menu, member, dia, momento, plato, voto, onOpinado, foco }:
   const [abierto, setAbierto] = useState(!!foco)
   // Recién marcado como comido: la fila sigue mostrando el voto aunque el menú ya se haya recargado.
   const [votando, setVotando] = useState(false)
+  const [sinVoto, setSinVoto] = useState(false)
   const [cambiando, setCambiando] = useState(false)
   const [receta, setReceta] = useState<Receta | undefined>(plato.receta)
   const [cargando, setCargando] = useState(false)
@@ -319,25 +325,35 @@ function FilaPlato({ menu, member, dia, momento, plato, voto, onOpinado, foco }:
   }, [foco])
 
   const marca = voto != null ? VOTOS.find(([v]) => v === voto)?.[1] : null
+  const ligera = momento === 'cena' && plato.etiquetas.includes('Ligero')
+  const origen = plato.etiquetas.includes('Fuera') ? 'fuera de casa'
+    : plato.etiquetas.includes('Sin compra') ? 'todo en casa'
+    : plato.elegido ? `lo eligió ${plato.elegido.uid === member.user_id ? 'tú' : plato.elegido.nombre}`
+    : plato.recetario ? 'de la casa'
+    : plato.etiquetas.includes('A mano') ? 'a vuestro gusto' : ''
+  const meta = [plato.minutos > 0 && `${plato.minutos} min`, plato.aparato && !fuera && !/vitro|inducci/i.test(plato.aparato) ? plato.aparato.split(' o ')[0].toLowerCase() : '', origen].filter(Boolean).join(' · ')
   return (
-    <div className="sm-plato" ref={caja}>
-      <div className="sm-plato-fila">
-        <button className="sm-plato-cab" onClick={() => setAbierto(!abierto)} aria-expanded={abierto}>
-          <span className="sm-momento">{momento === 'almuerzo' ? 'Almuerzo' : 'Cena'}</span>
-          <span className="sp-nombre">
-            {plato.titulo}
-            {marca && <span className={`sm-voto-marca${voto! < 0 ? ' no' : ''}`}> {marca}</span>}
-            <small>
-              {plato.etiquetas.includes('Fuera') ? 'fuera de casa' : plato.etiquetas.includes('Sin compra') ? 'lo que haya' : plato.minutos > 0 ? `${plato.minutos} min` : 'a vuestro gusto'}
-              {plato.hecho?.si && ' · comido ✓'}
-              {plato.elegido && <span className={`sm-eligio${plato.elegido.rol === 'mama' ? ' mama' : ''}`}> · {plato.elegido.uid === member.user_id ? 'tú' : plato.elegido.nombre}</span>}
-            </small>
-          </span>
-        </button>
-        {!pasado && (
-          <button className="chip sm-cambiar-chip" onClick={() => setCambiando(true)} aria-label={`Cambiar ${plato.titulo}`}>Cambiar</button>
-        )}
-      </div>
+    <article className="sm-tarjeta" ref={caja}>
+      <span className="ceja">
+        {momento === 'almuerzo' ? 'Almuerzo' : 'Cena'}{ligera ? ' · ligera' : ''}{plato.hecho?.si ? ' · comido ✓' : ''}
+      </span>
+      <span className="sm-t-titulo">
+        {plato.titulo}
+        {marca && <span className={`sm-voto-marca${voto! < 0 ? ' no' : ''}`}> {marca}</span>}
+      </span>
+      {meta && <span className="sm-t-meta">{meta}</span>}
+      {(!fuera || !pasado) && (
+        <div className="sm-t-botones">
+          {!fuera && (
+            <button className="boton" onClick={() => setAbierto(!abierto)} aria-expanded={abierto}>
+              {abierto ? 'Ocultar receta' : 'Ver receta'}
+            </button>
+          )}
+          {!pasado && (
+            <button className="boton claro" onClick={() => setCambiando(true)} aria-label={`Cambiar ${plato.titulo}`}>Cambiar</button>
+          )}
+        </div>
+      )}
       {(pregunta || votando) && (
         <PreguntaComida
           menu={menu}
@@ -359,7 +375,7 @@ function FilaPlato({ menu, member, dia, momento, plato, voto, onOpinado, foco }:
               ))}
             </ul>
           )}
-          {!fuera && receta && (
+          {receta && (
             <>
               <ol>
                 {receta.pasos.map((p, i) => (
@@ -369,25 +385,25 @@ function FilaPlato({ menu, member, dia, momento, plato, voto, onOpinado, foco }:
               {receta.consejo && <p className="cursiva sm-consejo">{receta.consejo}</p>}
             </>
           )}
-          {!fuera && !receta && cargando && <p className="apagado">Escribiendo la receta…</p>}
+          {!receta && cargando && <p className="apagado">Escribiendo la receta…</p>}
           {error && (
             <>
               <p className="error">{error}</p>
               <button className="chip" onClick={() => void verPasos()}>Probar otra vez</button>
             </>
           )}
-          {plato.hecho?.si && !votando && (
-            <PreguntaComida menu={menu} p={{ dia, momento, plato }} variante="fila" voto={voto} onOpinado={onOpinado} onListo={() => setAbierto(false)} />
-          )}
         </div>
       )}
-    </div>
+      {plato.hecho?.si && voto == null && !votando && !pregunta && !fuera && !sinVoto && (
+        <PreguntaComida menu={menu} p={{ dia, momento, plato }} variante="fila" voto={voto} onOpinado={onOpinado} onListo={() => setSinVoto(true)} />
+      )}
+    </article>
   )
 }
 
 type Foco = { dia: number; momento: 'almuerzo' | 'cena' }
 
-export default function Semana({ member, onIrALista, foco, onFocoUsado }: { member: Member; onIrALista: () => void; foco?: Foco | null; onFocoUsado?: () => void }) {
+export default function Semana({ member, onIrALista, foco, onFocoUsado, onRecetario }: { member: Member; onIrALista: () => void; foco?: Foco | null; onFocoUsado?: () => void; onRecetario?: () => void }) {
   const [prefs, setPrefs] = useState<Prefs | null | undefined>(undefined)
   const [editando, setEditando] = useState(false)
   const [menus, setMenus] = useState<Menu[] | undefined>(undefined)
@@ -395,7 +411,7 @@ export default function Semana({ member, onIrALista, foco, onFocoUsado }: { memb
   const [aviso, setAviso] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const [verCompra, setVerCompra] = useState(false)
-  const [verPasados, setVerPasados] = useState(false)
+  const [dia, setDia] = useState<number | null>(null)
   // El plato que pidió abrir «Ahora»: se usa una vez.
   const [abrir] = useState(foco ?? null)
   useEffect(() => {
@@ -508,16 +524,15 @@ export default function Semana({ member, onIrALista, foco, onFocoUsado }: { memb
   const ajustando = !!listo && !menu.error && ((menu.plan!.cambios?.length ?? 0) > 0 || vieja)
   const estaSemana = !!listo && menu.semana === esteLunes
   // Los días que ya pasaron se pliegan: al abrir se ve hoy.
-  const desde = estaSemana && !verPasados ? Math.max(0, Math.min(hoyIdx, 6)) : 0
-  const sinVer = listo ? sinConfirmar(menu).filter((x) => x.dia < desde).length : 0
-  const nombreDia = (i: number) => (estaSemana && i === hoyIdx ? 'Hoy' : estaSemana && i === hoyIdx + 1 ? 'Mañana' : DIAS[i])
+  // Día que se ve: el elegido en la tira; si no, el que pidió «Ahora» o hoy.
+  const diaVisto = dia ?? abrir?.dia ?? (estaSemana ? Math.max(0, Math.min(hoyIdx, 6)) : 0)
 
   return (
     <>
       {menus.length > 1 && (
         <div className="opciones-chips sm-semanas" role="group" aria-label="Semana">
           {menus.map((m) => (
-            <button key={m.semana} type="button" className={`chip${m.id === menu?.id ? ' activo' : ''}`} aria-pressed={m.id === menu?.id} onClick={() => setElegida(m.semana)}>
+            <button key={m.semana} type="button" className={`chip${m.id === menu?.id ? ' activo' : ''}`} aria-pressed={m.id === menu?.id} onClick={() => { setElegida(m.semana); setDia(null) }}>
               {nombreSemana(m.semana)}
             </button>
           ))}
@@ -531,15 +546,26 @@ export default function Semana({ member, onIrALista, foco, onFocoUsado }: { memb
         </section>
       ) : listo ? (
         <>
-          <section className="sm-cab" aria-label="Coste de la semana">
-            <p>
-              <span className="ceja">{fechaCorta(menu.semana)} – {fechaCorta(menu.semana, 6)}</span>
-              <span className={`sm-coste${pasado ? ' pasado' : ''}`}>
-                {euros(menu.total ?? 0)} <small>de {euros(prefs.presupuesto)}</small>
-              </span>
-            </p>
-            <button className="boton" onClick={() => void aLaLista(menu)} disabled={ocupado || ajustando}>A la lista</button>
-          </section>
+          <div className="sm-tira" role="tablist" aria-label="Día">
+            {menu.plan!.dias.map((_, i) => {
+              const hoy = estaSemana && i === hoyIdx
+              const falta = sinConfirmar(menu).some((x) => x.dia === i)
+              return (
+                <button
+                  key={i}
+                  role="tab"
+                  aria-selected={i === diaVisto}
+                  aria-label={`${DIAS[i]} ${fechaCorta(menu.semana, i)}${hoy ? ', hoy' : ''}${falta ? ', sin confirmar' : ''}`}
+                  className={`sm-tira-dia${hoy ? ' hoy' : ''}${falta ? ' falta' : ''}`}
+                  onClick={() => setDia(i)}
+                >
+                  <span>{'LMXJVSD'[i]}</span>
+                  <b>{Number(fechaISO(menu.semana, i).slice(8))}</b>
+                </button>
+              )
+            })}
+          </div>
+
           {(ajustando || menu.error) && (
             <section className="sm-ajustando" role="status">
               {ajustando ? (
@@ -558,20 +584,29 @@ export default function Semana({ member, onIrALista, foco, onFocoUsado }: { memb
             </section>
           )}
 
-          {desde > 0 && (
-            <button className="enlace sm-pasados" onClick={() => setVerPasados(true)}>
-              Ver {desde === 1 ? 'el lunes' : `lunes a ${DIAS[desde - 1].toLowerCase()}`}{sinVer ? ` · ${sinVer} sin confirmar` : ''}
-            </button>
-          )}
-          {menu.plan!.dias.map((d, i) => i < desde ? null : (
-            <section className={`sm-dia${estaSemana && i === hoyIdx ? ' hoy' : ''}`} key={i}>
-              <h2 className="ceja">
-                {nombreDia(i)} · {fechaCorta(menu.semana, i)}
-              </h2>
-              <FilaPlato key={`a-${d.almuerzo.titulo}`} menu={menu} member={member} dia={i} momento="almuerzo" plato={d.almuerzo} voto={votos.get(d.almuerzo.titulo)} onOpinado={opinado} foco={abrir?.dia === i && abrir.momento === 'almuerzo'} />
-              <FilaPlato key={`c-${d.cena.titulo}`} menu={menu} member={member} dia={i} momento="cena" plato={d.cena} voto={votos.get(d.cena.titulo)} onOpinado={opinado} foco={abrir?.dia === i && abrir.momento === 'cena'} />
-            </section>
-          ))}
+          {(['almuerzo', 'cena'] as const).map((m) => {
+            const plato = menu.plan!.dias[diaVisto][m]
+            return (
+              <FilaPlato key={`${diaVisto}-${m}-${plato.titulo}`} menu={menu} member={member} dia={diaVisto} momento={m} plato={plato} voto={votos.get(plato.titulo)} onOpinado={opinado} foco={abrir?.dia === diaVisto && abrir.momento === m} />
+            )
+          })}
+
+          <section className="sm-semana" aria-label="Coste de la semana">
+            <p>
+              <span>Semana</span>
+              <span className={`sm-semana-cifra${pasado ? ' pasado' : ''}`}>{euros(menu.total ?? 0)} <small>de {euros(prefs.presupuesto)}</small></span>
+            </p>
+            <span className="sm-barra" aria-hidden="true">
+              <span className={pasado ? 'pasado' : ''} style={{ width: `${Math.min(100, ((menu.total ?? 0) / prefs.presupuesto) * 100)}%` }} />
+            </span>
+          </section>
+          {onRecetario && <button className="boton claro ancho sm-recetario" onClick={onRecetario}>Buscar en el recetario</button>}
+          <div className="sm-acciones">
+            <button className="chip" onClick={() => void aLaLista(menu)} disabled={ocupado || ajustando}>Pasar a la lista</button>
+            <button className="chip" onClick={() => setGustos(true)}>Antojos y gustos</button>
+            <button className="chip" onClick={() => void nuevo()} disabled={ocupado}>Otra semana</button>
+            <button className="chip" onClick={() => setEditando(true)}>Tu cocina</button>
+          </div>
 
           <section className="bloque">
             <button className="enlace" style={{ alignSelf: 'flex-start' }} onClick={() => setVerCompra(!verCompra)} aria-expanded={verCompra}>
@@ -614,13 +649,11 @@ export default function Semana({ member, onIrALista, foco, onFocoUsado }: { memb
 
       {aviso && <p role="status" className="aviso" onClick={() => setAviso('')}>{aviso}</p>}
 
-      {!generando && (
+      {!generando && !listo && (
         <div className="sm-acciones">
-          {listo && <button className="chip" onClick={() => setGustos(true)}>Antojos y gustos</button>}
-          <button className={listo ? 'chip' : 'boton grande ancho'} onClick={() => void nuevo()} disabled={ocupado}>
-            {listo ? 'Otra semana' : 'Preparar la semana'}
-          </button>
+          <button className="boton grande ancho" onClick={() => void nuevo()} disabled={ocupado}>Preparar la semana</button>
           <button className="chip" onClick={() => setEditando(true)}>Tu cocina</button>
+          {onRecetario && <button className="chip" onClick={onRecetario}>Recetario</button>}
         </div>
       )}
       {gustos && <Gustos member={member} menu={menu} onCerrar={() => setGustos(false)} />}
