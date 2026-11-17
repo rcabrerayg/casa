@@ -45,6 +45,6 @@ Otros cambios:
 
 ## Queda
 
-- **Deshacer una compra** no resta del historial ni de la despensa (ya pasaba al desmarcar). Hay una migración lista (`al_comprar` con rama de deshacer) pendiente de aplicar.
+- ~~Deshacer una compra no restaba del historial ni de la despensa~~: arreglado con la migración `20261117120000_deshacer_compra` (aplicada y probada).
 - **Rehacer la compra** (acción `compra` de la función `menu`) no respeta el presupuesto: en la prueba pasó de 70,91 € a 111,50 €.
 - Reordenar perecederos si se retrasa la compra (pendiente conocido).
