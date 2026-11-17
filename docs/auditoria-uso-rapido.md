@@ -46,5 +46,5 @@ Otros cambios:
 ## Queda
 
 - ~~Deshacer una compra no restaba del historial ni de la despensa~~: arreglado con la migración `20261117120000_deshacer_compra` (aplicada y probada).
-- **Rehacer la compra** ya solo compra lo que queda de semana (sin lo pasado ni lo comido), con su parte del presupuesto y una segunda vuelta con envases más pequeños si se pasa. En la prueba (martes): menú de 94,18 € → compra rehecha de 85,63 € para 6 días. Sigue por encima del tope (60 € para 6 días) porque los platos ya están decididos; el propio planificador también se pasa (94 € con tope de 70 €).
+- **Rehacer la compra** ya solo compra lo que queda de semana (sin lo pasado ni lo comido), con su parte del presupuesto y una segunda vuelta con envases más pequeños si se pasa. En la prueba (martes): menú de 94,18 € → compra rehecha de 85,63 € para 6 días. Sigue por encima del tope (60 € para 6 días) porque los platos ya están decididos; el planificador también se pasaba (94 € con tope de 70 €). Arreglado después: el planificador apunta al 90 % del presupuesto, hace hasta dos vueltas cambiando los platos más caros y una última con envases más baratos; en la prueba, dos menús con tope de 70 € salieron a 63,27 € y 53,10 €, en un minuto cada uno.
 - Reordenar perecederos si se retrasa la compra (pendiente conocido).
