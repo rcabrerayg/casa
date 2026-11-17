@@ -71,11 +71,18 @@ export async function cargarLista(): Promise<{ items: Item[]; productos: Map<str
 }
 
 export function escucharLista(householdId: string, alCambiar: () => void, nombre = 'principal') {
+  // Al pasar un menú a la lista llegan decenas de cambios seguidos: se recarga una sola vez al final.
+  let t: ReturnType<typeof setTimeout> | undefined
+  const avisar = () => {
+    clearTimeout(t)
+    t = setTimeout(alCambiar, 400)
+  }
   const canal = supabase
     .channel(`lista-${householdId}-${nombre}-${crypto.randomUUID()}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'lista_items', filter: `household_id=eq.${householdId}` }, alCambiar)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'lista_items', filter: `household_id=eq.${householdId}` }, avisar)
     .subscribe()
   return () => {
+    clearTimeout(t)
     void supabase.removeChannel(canal)
   }
 }
@@ -111,10 +118,16 @@ export function repartir(items: Item[], productos: Map<string, Producto>): Linea
     const h = precios.hiperdino
     let elegido: Producto | null = null
     if (item.super_fijo) elegido = precios[item.super_fijo] ?? null
-    else if (m && h) elegido = masBarato(m, h)
+    else if (m && h) {
+      // Si los envases no se parecen (p. ej. 1 kg frente a 10 kg), manda el producto elegido, no la pareja encontrada.
+      const parecen = m.precio < h.precio * 3 && h.precio < m.precio * 3
+      elegido = parecen ? masBarato(m, h) : (productos.get(item.producto_id ?? '') ?? masBarato(m, h))
+    }
     else elegido = m ?? h ?? null
     const otro = elegido && (elegido.super === 'mercadona' ? h : m)
-    const ahorro = elegido && otro && !item.super_fijo ? Math.max(0, otro.precio - elegido.precio) * item.cantidad : 0
+    // Envases muy distintos (una patata frente a un saco) no se comparan: el «ahorro» sería engañoso.
+    const parecidos = !!elegido && !!otro && otro.precio < elegido.precio * 3 && elegido.precio < otro.precio * 3
+    const ahorro = elegido && otro && parecidos && !item.super_fijo ? Math.max(0, otro.precio - elegido.precio) * item.cantidad : 0
     return { item, super: item.super_fijo ?? elegido?.super ?? null, producto: elegido, precios, ahorro }
   })
 }

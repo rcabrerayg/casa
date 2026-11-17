@@ -2,7 +2,8 @@ import { Cargador } from '../componentes/Logo'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import Semana from './Semana'
-import { lunesDeEstaSemana, menusVigentes, sinConfirmar } from '../lib/semana'
+import { lunesDeEstaSemana, menusVigentes, sinConfirmar, type Menu } from '../lib/semana'
+import { PreguntaComida } from './Comimos'
 import Recetario from './Recetario'
 import { IcoVolver } from '../componentes/Iconos'
 import Despensa from './Casa'
@@ -37,6 +38,8 @@ function Resultado({ p, onElegir }: { p: Producto; onElegir: () => void }) {
 function Fila({ l, abierta, onAbrir, onCambio }: { l: Linea; abierta: boolean; onAbrir: () => void; onCambio: (c: Partial<Item> | null) => void }) {
   const { item, producto, precios } = l
   const otro = producto && precios[producto.super === 'mercadona' ? 'hiperdino' : 'mercadona']
+  // Solo se compara si es el mismo tipo de envase (un precio no triplica al otro) y el ahorro merece la pena.
+  const comparable = !!otro && !!producto && otro.precio < producto.precio * 3 && producto.precio < otro.precio * 3
   const comprado = !!item.comprado_at
   return (
     <div className={`sp-fila${comprado ? ' comprado' : ''}`}>
@@ -52,15 +55,15 @@ function Fila({ l, abierta, onAbrir, onCambio }: { l: Linea; abierta: boolean; o
         </button>
         <button className="sp-cuerpo" onClick={onAbrir} aria-expanded={abierta}>
           <span className="sp-nombre">
-            {item.cantidad > 1 && <b>{item.cantidad} × </b>}
-            {producto?.nombre ?? item.texto}
-            {otro && !comprado && (
+            <span>
+              {item.cantidad > 1 && <b>{item.cantidad} × </b>}
+              {producto?.nombre ?? item.texto}
+            </span>
+            {comparable && !comprado && l.ahorro >= 0.5 && (
               <small>
-                {NOMBRE[otro.super]}: {euros(otro.precio)}
-                {l.ahorro > 0 && <em> · ahorras {euros(l.ahorro)}</em>}
+                <em>ahorras {euros(l.ahorro)}</em> frente a {NOMBRE[otro!.super]}
               </small>
             )}
-            {!producto && !comprado && <small>Sin precio · texto libre</small>}
           </span>
           {producto && <span className="sp-precio">{euros(producto.precio * item.cantidad)}</span>}
         </button>
@@ -92,7 +95,15 @@ function Fila({ l, abierta, onAbrir, onCambio }: { l: Linea; abierta: boolean; o
 
 export type VistaComida = 'menu' | 'lista' | 'despensa'
 
-export default function Super({ member, vistaInicial, onVistaUsada }: { member: Member; vistaInicial?: VistaComida | null; onVistaUsada?: () => void }) {
+type Foco = { dia: number; momento: 'almuerzo' | 'cena' }
+
+export default function Super({ member, vistaInicial, onVistaUsada, foco, onFocoUsado }: {
+  member: Member
+  vistaInicial?: VistaComida | null
+  onVistaUsada?: () => void
+  foco?: Foco | null
+  onFocoUsado?: () => void
+}) {
   const [items, setItems] = useState<Item[]>([])
   const [cargada, setCargada] = useState(false)
   const [productos, setProductos] = useState<Map<string, Producto>>(new Map())
@@ -113,14 +124,21 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
   })
   const [recetario, setRecetario] = useState(false)
   // Comidas de días pasados que nadie ha confirmado: si no se cocinaron, sus ingredientes siguen en la lista.
-  const [sinVer, setSinVer] = useState(0)
+  const [menuSemana, setMenuSemana] = useState<Menu | null>(null)
+  const cargarMenu = useCallback(() => {
+    void menusVigentes().then((ms) => setMenuSemana(ms.find((x) => x.semana === lunesDeEstaSemana() && x.estado === 'listo') ?? null))
+  }, [])
   useEffect(() => {
-    if (vista !== 'lista') return
-    void menusVigentes().then((ms) => {
-      const m = ms.find((x) => x.semana === lunesDeEstaSemana())
-      setSinVer(m && !m.plan?.compra_vieja ? sinConfirmar(m).length : 0)
-    })
-  }, [vista])
+    if (vista === 'lista') cargarMenu()
+  }, [vista, cargarMenu])
+  const sinVer = menuSemana && !menuSemana.plan?.compra_vieja ? sinConfirmar(menuSemana) : []
+  // Lo último marcado: un toque para deshacerlo si fue sin querer.
+  const [deshacer, setDeshacer] = useState<Item | null>(null)
+  useEffect(() => {
+    if (!deshacer) return
+    const t = setTimeout(() => setDeshacer(null), 5000)
+    return () => clearTimeout(t)
+  }, [deshacer])
   const irA = (v: VistaComida) => {
     setVista(v)
     setRecetario(false)
@@ -145,10 +163,20 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
   const entrada = useRef<HTMLInputElement>(null)
   const probados = useRef(new Set<string>())
 
+  const turno = useRef(0)
+  const limpio = useRef(false)
   const recargar = useCallback(async () => {
+    const mio = ++turno.current
     try {
       const r = await cargarLista()
-      setItems(r.items)
+      if (mio !== turno.current) return
+      // Lo comprado hace más de 12 horas ya no estorba: se quita solo (queda en el historial de compras).
+      const viejos = r.items.filter((i) => i.comprado_at && Date.now() - Date.parse(i.comprado_at) > 12 * 3600_000)
+      if (viejos.length && !limpio.current) {
+        limpio.current = true
+        void supabase.from('lista_items').delete().in('id', viejos.map((i) => i.id))
+      }
+      setItems(r.items.filter((i) => !viejos.includes(i)))
       setCargada(true)
       setProductos(r.productos)
       // Productos sin pareja en el otro súper (p. ej. añadidos antes de tener su precio): se buscan una vez.
@@ -209,6 +237,7 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
       void recargar()
     }
     if (!c) setAbierta(null)
+    setDeshacer(c?.comprado_at ? item : null)
   }
 
   async function vaciarComprados() {
@@ -222,14 +251,10 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
 
   const resumen = useMemo(() => {
     const total = pendientes.reduce((s, l) => s + (l.producto ? l.producto.precio * l.item.cantidad : 0), 0)
-    // Ahorro: frente a comprar en un solo súper lo que está en los dos.
-    const ambos = pendientes.filter((l) => l.precios.mercadona && l.precios.hiperdino && l.producto)
-    const enUno = Math.min(
-      ...SUPERS.map((s) => ambos.reduce((t, l) => t + l.precios[s]!.precio * l.item.cantidad, 0)),
-    )
-    const repartido = ambos.reduce((t, l) => t + l.producto!.precio * l.item.cantidad, 0)
+    // Ahorro: lo que se ahorra eligiendo en cada cosa el súper más barato (solo envases comparables).
+    const ahorro = pendientes.reduce((t, l) => t + l.ahorro, 0)
     const vistos = [...productos.values()].map((p) => p.visto_at ?? '').sort()
-    return { total, ahorro: ambos.length ? Math.max(0, enUno - repartido) : 0, actualizado: vistos.at(-1) }
+    return { total, ahorro, actualizado: vistos.at(-1) }
   }, [pendientes, productos])
 
   async function compartir() {
@@ -265,8 +290,8 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
       </div>
       {vista === 'menu' && !recetario && (
         <>
-          <Semana member={member} onIrALista={() => irA('lista')} />
-          <button className="boton secundario ancho" onClick={() => { setRecetario(true); window.scrollTo(0, 0) }}>Buscar en el recetario</button>
+          <Semana member={member} onIrALista={() => irA('lista')} foco={foco} onFocoUsado={onFocoUsado} />
+          <button className="chip" style={{ alignSelf: 'flex-start' }} onClick={() => { setRecetario(true); window.scrollTo(0, 0) }}>Recetario</button>
         </>
       )}
       {vista === 'menu' && recetario && (
@@ -281,12 +306,18 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
       {vista === 'despensa' && <Despensa onIrALista={() => irA('lista')} />}
       {vista === 'lista' && (
       <>
-      {sinVer > 0 && pendientes.length > 0 && (
-        <section className="sm-aviso-compra" role="status">
-          <p>
-            {sinVer === 1 ? 'Hay una comida' : `Hay ${sinVer} comidas`} de esta semana sin confirmar. Si no se cocinó, sus ingredientes siguen en la lista: dímelo antes de comprar.
-          </p>
-          <button className="boton claro" onClick={() => irA('menu')}>Revisar el menú</button>
+      {sinVer.length > 0 && menuSemana && pendientes.length > 0 && (
+        <section className="sm-aviso-compra" aria-label="Comidas sin confirmar">
+          <p>Antes de comprar: ¿se cocinó?</p>
+          {sinVer.map((p) => (
+            <div key={`${p.dia}-${p.momento}`} className="sp-sinver">
+              <span className="sp-nombre">
+                {p.plato.titulo}
+                <small>{p.momento === 'almuerzo' ? 'Almuerzo' : 'Cena'} del {['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'][p.dia]}</small>
+              </span>
+              <PreguntaComida menu={menuSemana} p={p} variante="fila" onListo={cargarMenu} onSi={cargarMenu} />
+            </div>
+          ))}
         </section>
       )}
 
@@ -303,26 +334,13 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
           aria-label="Buscar producto para añadir"
           enterKeyHint="done"
         />
-        {!q.trim() && (
-          <button className="enlace sp-ofertas" onClick={() => (rebajas ? setRebajas(null) : void ofertas().then(setRebajas).catch((e) => setAviso(e.message)))}>
-            {rebajas ? 'Cerrar ofertas' : 'Ver ofertas de hoy en los dos súper'}
-          </button>
-        )}
-        {!q.trim() && rebajas && (
-          <div className="sp-resultados">
-            {rebajas.map((p) => (
-              <Resultado key={p.id} p={p} onElegir={() => void anadir(p)} />
-            ))}
-            {!rebajas.length && <p className="sp-nota">Ahora mismo no hay ofertas registradas.</p>}
-          </div>
-        )}
         {q.trim().length >= 1 && (
           <div className="sp-resultados" role="listbox">
             <button className="sp-resultado libre" onClick={() => void anadir(null)}>
               <span className="sp-marca" aria-hidden="true" />
               <span className="sp-nombre">
-                Añadir «{q.trim()}» tal cual
-                <small>Sin precio; lo compráis donde sea</small>
+                Añadir «{q.trim()}»
+                <small>Sin precio</small>
               </span>
             </button>
             {resultados.map((p) => (
@@ -341,20 +359,15 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
       )}
 
       {pendientes.length > 0 ? (
-        <section className="sp-resumen" aria-label="Total estimado">
-          <div>
-            <p className="ceja">Total estimado</p>
-            <p className="sp-total">{euros(resumen.total)}</p>
-            {resumen.ahorro > 0.009 && (
-              <p className="cursiva sp-ahorro">ahorras {euros(resumen.ahorro)} repartiendo</p>
-            )}
-          </div>
-          <button className="boton" onClick={() => void compartir()}>Compartir lista</button>
+        <section className="sp-cab" aria-label="Total estimado">
+          <p>
+            <span className="sp-total-linea">{euros(resumen.total)}</span>
+            <small>{pendientes.length} {pendientes.length === 1 ? 'cosa' : 'cosas'}{resumen.ahorro > 0.009 ? ` · ahorras ${euros(resumen.ahorro)}` : ''}</small>
+          </p>
+          <button className="chip" onClick={() => void compartir()}>Compartir</button>
         </section>
       ) : cargada ? (
-        <p className="apagado sm-intro">
-          La lista está vacía. Escribe arriba y elige el producto: te digo dónde sale más barato.
-        </p>
+        <p className="apagado sm-intro">Lista vacía. Escribe arriba lo que falta.</p>
       ) : (
         <Cargador pantalla={false} />
       )}
@@ -392,7 +405,7 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
             <button className="enlace" onClick={() => setVerComprados(!verComprados)} aria-expanded={verComprados}>
               {verComprados ? 'Ocultar' : 'Ver'} comprados ({comprados.length})
             </button>
-            <button className="enlace" onClick={() => void vaciarComprados()}>Vaciar comprados</button>
+            <button className="enlace" onClick={() => void vaciarComprados()}>Vaciar</button>
           </div>
           {verComprados && (
             <div>
@@ -404,11 +417,29 @@ export default function Super({ member, vistaInicial, onVistaUsada }: { member: 
         </section>
       )}
 
+      <button className="enlace" onClick={() => (rebajas ? setRebajas(null) : void ofertas().then(setRebajas).catch((e) => setAviso(e.message)))}>
+        {rebajas ? 'Cerrar ofertas' : 'Ofertas de hoy'}
+      </button>
+      {rebajas && (
+        <div className="sp-resultados">
+          {rebajas.map((p) => (
+            <Resultado key={p.id} p={p} onElegir={() => void anadir(p)} />
+          ))}
+          {!rebajas.length && <p className="sp-nota">Ahora mismo no hay ofertas registradas.</p>}
+        </div>
+      )}
+
       {resumen.actualizado && (
         <p className="sp-nota">
-          Precios de Mercadona (CP 38107) e HiperDino Tenerife, actualizados cada noche. Último:{' '}
+          Precios de Mercadona e HiperDino Tenerife, del{' '}
           {new Intl.DateTimeFormat('es-ES', { timeZone: 'Atlantic/Canary', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(resumen.actualizado))}.
         </p>
+      )}
+      {deshacer && (
+        <div className="deshacer" role="status">
+          <span>✓ {deshacer.texto.length > 28 ? `${deshacer.texto.slice(0, 28)}…` : deshacer.texto}</span>
+          <button onClick={() => { const it = deshacer; setDeshacer(null); void cambiar(it, { comprado_at: null }) }}>Deshacer</button>
+        </div>
       )}
       </>
       )}

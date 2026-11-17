@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Member } from '../lib/supabase'
 import {
   TZ, cadaSaca, cargar, conPendientes, edad, enCurso, escuchar, hace, hora, minutos, proxima, queFue, vaciarCola, SACAR_CADA_MIN,
@@ -6,8 +6,8 @@ import {
 } from '../lib/bebe'
 import { mensajes } from '../lib/animo'
 import { lunesDeEstaSemana, menusVigentes, sinCocinar, sinConfirmar, type Menu, type Plato } from '../lib/semana'
-import { Comimos } from './Comimos'
-import { cargarLista, escucharLista, euros, NOMBRE, repartir, type Linea } from '../lib/super'
+import { PreguntaComida, type Pendiente } from './Comimos'
+import { cargarLista, escucharLista, NOMBRE, repartir, type Linea } from '../lib/super'
 import { IcoAjustes, IcoFlecha } from '../componentes/Iconos'
 import { Cargador, Logo } from '../componentes/Logo'
 import type { Panel } from './Bebe'
@@ -19,7 +19,7 @@ type Props = {
   mama: string
   onAjustes: () => void
   onBebe: (p: Panel | null) => void
-  onComida: (v: VistaComida) => void
+  onComida: (v: VistaComida, foco?: { dia: number; momento: 'almuerzo' | 'cena' }) => void
 }
 
 function cabecera(ms: number) {
@@ -43,9 +43,12 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
   const [eventos, setEventos] = useState<BabyEvent[]>([])
   const [cargado, setCargado] = useState(false)
   const [ahora, setAhora] = useState(Date.now())
-  const [plato, setPlato] = useState<{ momento: 'almuerzo' | 'cena'; plato: Plato } | null>(null)
+  const [plato, setPlato] = useState<{ dia: number; momento: 'almuerzo' | 'cena'; plato: Plato } | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
-  const [preguntando, setPreguntando] = useState(false)
+  // Estado del menú de esta semana: se está preparando o aún no hay (para no dejar Ahora mudo).
+  const [sinMenu, setSinMenu] = useState<'generando' | 'nada' | null>(null)
+  // Lo que se acaba de marcar como comido: se queda un momento para votar.
+  const [recien, setRecien] = useState<Pendiente | null>(null)
   const [compra, setCompra] = useState<Linea[]>([])
   const [cada, setCada] = useState(SACAR_CADA_MIN)
   const c = cabecera(ahora)
@@ -61,12 +64,15 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
     }
   }, [bebe.id])
 
+  // Solo vale la última respuesta: si llegan varias recargas seguidas, una vieja no pisa a una nueva.
+  const turnoCompra = useRef(0)
   const cargarCompra = useCallback(async () => {
+    const turno = ++turnoCompra.current
     try {
       const r = await cargarLista()
-      setCompra(repartir(r.items.filter((i) => !i.comprado_at), r.productos))
+      if (turno === turnoCompra.current) setCompra(repartir(r.items.filter((i) => !i.comprado_at), r.productos))
     } catch {
-      setCompra([])
+      if (turno === turnoCompra.current) setCompra([])
     }
   }, [])
 
@@ -95,15 +101,20 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
 
   const cargarMenu = useCallback(() => {
     void menusVigentes().then((ms) => {
-      const m = ms.find((x) => x.semana === lunesDeEstaSemana() && x.estado === 'listo' && x.plan)
-      const d = m?.plan?.dias[indiceHoy(m.semana)]
+      const deEsta = ms.find((x) => x.semana === lunesDeEstaSemana())
+      const m = deEsta?.estado === 'listo' && deEsta.plan ? deEsta : undefined
+      const hoy = m ? indiceHoy(m.semana) : -1
+      const d = m?.plan?.dias[hoy]
       setMenu(m ?? null)
-      setPlato(d ? { momento, plato: d[momento] } : null)
+      setPlato(d ? { dia: hoy, momento, plato: d[momento] } : null)
+      const generando = ms.some((x) => x.estado === 'generando' && Date.now() - new Date(x.created_at).getTime() < 5 * 60_000)
+      setSinMenu(generando ? 'generando' : m ? null : 'nada')
     })
   }, [momento])
   useEffect(cargarMenu, [cargarMenu])
-  // La comida más reciente que ya tocaba y nadie ha confirmado.
-  const porConfirmar = menu ? sinConfirmar(menu).at(-1) : undefined
+  // Las comidas que ya tocaban y nadie ha confirmado; se pregunta por la más reciente.
+  const pendientes = menu ? sinConfirmar(menu).filter((p) => !(recien && p.dia === recien.dia && p.momento === recien.momento)) : []
+  const porConfirmar = pendientes.at(-1)
 
   const tomas = eventos.filter((e) => e.kind === 'toma')
   const ultima = tomas[0]
@@ -116,7 +127,6 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
     () => mensajes({ esMama, mama, bebe: bebe.name, birthAt: bebe.birth_at, eventos, ahora })[0],
     [esMama, mama, bebe.name, bebe.birth_at, eventos, ahora],
   )
-  const total = compra.reduce((s, l) => s + (l.producto ? l.producto.precio * l.item.cantidad : 0), 0)
   const supers = [...new Set(compra.map((l) => l.super).filter(Boolean))].map((s) => NOMBRE[s!])
 
   if (!cargado) return <Cargador />
@@ -175,22 +185,40 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
 
       {animo && <p className="animo-frase">{animo.texto}</p>}
 
-      {porConfirmar && menu && (
-        <button className="tarjeta cm-tarjeta" onClick={() => setPreguntando(true)}>
-          <span className="ceja">{porConfirmar.momento === 'almuerzo' ? 'Almuerzo' : 'Cena'} {porConfirmar.dia === indiceHoy(menu.semana) ? 'de hoy' : `del ${['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'][porConfirmar.dia]}`}</span>
-          <span className="grande">¿Comisteis {porConfirmar.plato.titulo}?</span>
-          <span className="detalle">Un toque y el menú y la lista cuadran con lo que de verdad comisteis</span>
-        </button>
+      {recien && menu && (
+        <PreguntaComida key={`r-${recien.dia}-${recien.momento}`} menu={menu} p={recien} hoy={indiceHoy(menu.semana)} variante="tarjeta" onListo={() => setRecien(null)} />
       )}
-      {preguntando && porConfirmar && menu && (
-        <Comimos menu={menu} dia={porConfirmar.dia} momento={porConfirmar.momento} plato={porConfirmar.plato} onCerrar={() => { setPreguntando(false); cargarMenu() }} />
+      {!recien && porConfirmar && menu && (
+        <PreguntaComida
+          key={`${porConfirmar.dia}-${porConfirmar.momento}`}
+          menu={menu}
+          p={porConfirmar}
+          todas={pendientes}
+          hoy={indiceHoy(menu.semana)}
+          variante="tarjeta"
+          onSi={() => { setRecien({ ...porConfirmar, plato: { ...porConfirmar.plato, hecho: { si: true, at: new Date().toISOString(), por: member.user_id } } }); cargarMenu() }}
+          onListo={cargarMenu}
+        />
       )}
 
       {plato && (
-        <button className="tarjeta" onClick={() => onComida('menu')}>
-          <span className="ceja">{plato.momento === 'almuerzo' ? 'Almuerzo' : 'Cena'} de hoy</span>
-          <span className="grande">{plato.plato.titulo}</span>
-          <span className="detalle">{sinCocinar(plato.plato) ? 'sin cocinar' : [`${plato.plato.minutos} min`, plato.plato.aparato, 'ver receta'].filter(Boolean).join(' · ')}</span>
+        <button className="tarjeta con-flecha" onClick={() => onComida('menu', sinCocinar(plato.plato) ? undefined : { dia: plato.dia, momento: plato.momento })}>
+          <span className="cuerpo">
+            <span className="ceja">{plato.momento === 'almuerzo' ? 'Almuerzo' : 'Cena'} de hoy</span>
+            <span className="grande">{plato.plato.titulo}</span>
+            {!sinCocinar(plato.plato) && plato.plato.minutos > 0 && <span className="detalle">{plato.plato.minutos} min · ver receta</span>}
+          </span>
+          <IcoFlecha />
+        </button>
+      )}
+      {!plato && sinMenu && (
+        <button className="tarjeta con-flecha" onClick={() => onComida('menu')}>
+          <span className="cuerpo">
+            <span className="ceja">Menú</span>
+            <span className="grande">{sinMenu === 'generando' ? 'Preparando el menú…' : 'Sin menú esta semana'}</span>
+            <span className="detalle">{sinMenu === 'generando' ? 'Tarda un minuto' : 'Toca para prepararlo'}</span>
+          </span>
+          <IcoFlecha />
         </button>
       )}
 
@@ -201,9 +229,7 @@ export default function Ahora({ member, bebe, mama, onAjustes, onBebe, onComida 
             <span className="grande">
               {compra.length} {compra.length === 1 ? 'cosa pendiente' : 'cosas pendientes'}
             </span>
-            {(supers.length > 0 || total > 0) && (
-              <span className="detalle">{[supers.join(' y '), total > 0 ? `≈ ${euros(total)}` : ''].filter(Boolean).join(' · ')}</span>
-            )}
+            {supers.length > 0 && <span className="detalle">{supers.join(' y ')}</span>}
           </span>
           <IcoFlecha />
         </button>

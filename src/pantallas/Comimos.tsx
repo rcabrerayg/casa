@@ -16,14 +16,16 @@ type ComimosProps = {
   voto?: Voto
   onCerrar: () => void
   onOpinado?: (titulo: string, voto: Voto | null) => void
+  /** Empezar directamente en un paso (p. ej. «no» o «sobras» desde la pregunta rápida). */
+  pasoInicial?: 'pregunta' | 'voto' | 'sobras' | 'no'
 }
 
 /**
  * «¿Comisteis…?»: sí → qué tal estaba y si sobró; no → qué comisteis y qué hacemos con el plato
  * (pasarlo al día siguiente o quitarlo de la lista). Si ya está marcado como comido, va directo al voto.
  */
-export function Comimos({ menu, dia, momento, plato, voto, onCerrar, onOpinado }: ComimosProps) {
-  const [paso, setPaso] = useState<'pregunta' | 'voto' | 'sobras' | 'no'>(plato.hecho?.si ? 'voto' : 'pregunta')
+export function Comimos({ menu, dia, momento, plato, voto, onCerrar, onOpinado, pasoInicial }: ComimosProps) {
+  const [paso, setPaso] = useState<'pregunta' | 'voto' | 'sobras' | 'no'>(pasoInicial ?? (plato.hecho?.si ? 'voto' : 'pregunta'))
   const [comimos, setComimos] = useState('Sobras')
   const [otra, setOtra] = useState('')
   const [ocupado, setOcupado] = useState(false)
@@ -78,7 +80,7 @@ export function Comimos({ menu, dia, momento, plato, voto, onCerrar, onOpinado }
               </button>
             ))}
           </div>
-          <p className="apagado sm-pista">Cada uno vota lo suyo: así el menú aprende qué os gusta a cada uno (lo de mamá cuenta el doble).</p>
+          <p className="apagado sm-pista">Cada uno vota lo suyo; el menú aprende.</p>
           {!plato.hecho?.si && (
             <button className="enlace" disabled={ocupado} onClick={() => setPaso('sobras')}>Ahora no</button>
           )}
@@ -96,7 +98,7 @@ export function Comimos({ menu, dia, momento, plato, voto, onCerrar, onOpinado }
             ))}
           </div>
           <p className="apagado sm-pista">
-            Las sobras ocupan los huecos siguientes. Lo que había allí sale de la lista de la compra y queda para la semana que viene.
+            Lo que había en esos huecos pasa a la semana que viene.
           </p>
         </>
       )}
@@ -119,13 +121,13 @@ export function Comimos({ menu, dia, momento, plato, voto, onCerrar, onOpinado }
             <li>
               <button className="sm-sugerida" disabled={ocupado} onClick={() => void hacer(() => noComimos(menu.id, dia, momento, 'pasar', titulo))}>
                 <span>Pasarlo al día siguiente</span>
-                <small>Los platos que vienen se corren un día; lo de comer fuera se queda donde está. La compra no cambia.</small>
+                <small>Los demás se corren un día. La compra no cambia.</small>
               </button>
             </li>
             <li>
               <button className="sm-sugerida" disabled={ocupado} onClick={() => void hacer(() => noComimos(menu.id, dia, momento, 'quitar', titulo))}>
                 <span>Quitarlo</span>
-                <small>Sus ingredientes salen solos de la lista (lo ya comprado y lo apuntado a mano no se toca).</small>
+                <small>Sus ingredientes salen de la lista.</small>
               </button>
             </li>
           </ul>
@@ -133,6 +135,89 @@ export function Comimos({ menu, dia, momento, plato, voto, onCerrar, onOpinado }
       )}
       {error && <p className="error">{error}</p>}
     </Hoja>
+  )
+}
+
+export type Pendiente = { dia: number; momento: 'almuerzo' | 'cena'; plato: Plato }
+
+const DE_MOMENTO = (p: Pendiente, hoy?: number) =>
+  `${p.momento === 'almuerzo' ? 'Almuerzo' : 'Cena'} ${p.dia === hoy ? 'de hoy' : `del ${DIAS[p.dia]}`}`
+
+/**
+ * «¿Comisteis…?» en un toque: Sí / No en el sitio. Tras el sí, el voto (opcional) y «sobró» quedan a mano;
+ * el «no» abre la hoja para decidir qué pasa con el plato. Con varias pendientes, «Sí a todas».
+ */
+export function PreguntaComida({ menu, p, todas, hoy, variante, voto, onOpinado, onSi, onListo }: {
+  menu: Menu
+  p: Pendiente
+  todas?: Pendiente[]
+  hoy?: number
+  variante: 'tarjeta' | 'fila'
+  voto?: Voto
+  onOpinado?: (titulo: string, voto: Voto | null) => void
+  onSi?: () => void
+  onListo: () => void
+}) {
+  const [si, setSi] = useState(!!p.plato.hecho?.si)
+  const [hoja, setHoja] = useState<'no' | 'sobras' | null>(null)
+  const [ocupado, setOcupado] = useState(false)
+  const [error, setError] = useState('')
+
+  async function hacer(f: () => Promise<unknown>, despues: () => void) {
+    setOcupado(true)
+    setError('')
+    try {
+      await f()
+      despues()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setOcupado(false)
+    }
+  }
+  const comido = () => hacer(() => marcarComida(menu.id, p.dia, p.momento, true), () => { setSi(true); onSi?.() })
+  const todasSi = () => hacer(async () => {
+    for (const x of todas ?? []) await marcarComida(menu.id, x.dia, x.momento, true)
+  }, onListo)
+  const votar = (v: Voto) => hacer(async () => {
+    await opinar(p.plato.titulo, p.momento, v)
+    onOpinado?.(p.plato.titulo, v)
+  }, onListo)
+  const tarjeta = variante === 'tarjeta'
+
+  return (
+    <div className={tarjeta ? 'tarjeta cm-rapida' : 'cm-rapida en-fila'} aria-live="polite">
+      {tarjeta && <span className="ceja">{DE_MOMENTO(p, hoy)}{si ? ' · comido ✓' : ''}</span>}
+      {tarjeta && <span className="grande">{si ? '¿Qué tal estaba?' : `¿Comisteis ${p.plato.titulo}?`}</span>}
+      {!si ? (
+        <div className="cm-sino">
+          <button className="boton" disabled={ocupado} onClick={() => void comido()}>Sí</button>
+          <button className="boton claro" disabled={ocupado} onClick={() => setHoja('no')}>No</button>
+          {todas && todas.length > 1 && (
+            <button className="boton claro" disabled={ocupado} onClick={() => void todasSi()}>Sí a las {todas.length}</button>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="cm-votar">
+            {VOTOS.map(([v, emoji, texto]) => (
+              <button key={v} className={`cm-emoji${voto === v ? ' activo' : ''}`} aria-label={texto} title={texto} aria-pressed={voto === v} disabled={ocupado} onClick={() => void votar(v)}>
+                {emoji}
+              </button>
+            ))}
+          </div>
+          <div className="cm-sino">
+            <button className="chip" disabled={ocupado} onClick={() => setHoja('sobras')}>Sobró algo</button>
+            <button className="chip" disabled={ocupado} onClick={onListo}>Ahora no</button>
+          </div>
+        </>
+      )}
+      {error && <p className="error">{error}</p>}
+      {hoja && (
+        <Comimos menu={menu} dia={p.dia} momento={p.momento} plato={p.plato} voto={voto} pasoInicial={hoja} onOpinado={onOpinado}
+          onCerrar={() => { setHoja(null); onListo() }} />
+      )}
+    </div>
   )
 }
 

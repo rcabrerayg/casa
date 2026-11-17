@@ -24,6 +24,8 @@ export default function App() {
   // Lo que pide «Ahora» al saltar a otra sección: abrir un panel de Darío o un apartado de Comida.
   const [panel, setPanel] = useState<Panel | null>(null)
   const [vistaComida, setVistaComida] = useState<VistaComida | null>(null)
+  // Plato que «Ahora» pide abrir en el menú (con su receta).
+  const [focoPlato, setFocoPlato] = useState<{ dia: number; momento: 'almuerzo' | 'cena' } | null>(null)
 
   useTema(!!casa?.bebe && seccion === 'dario' && !ajustes)
 
@@ -84,14 +86,15 @@ export default function App() {
             setPanel(p)
             setSeccion('dario')
           }}
-          onComida={(v) => {
+          onComida={(v, foco) => {
             setVistaComida(v)
+            setFocoPlato(foco ?? null)
             setSeccion('comida')
           }}
         />
       )}
       {seccion === 'dario' && <Bebe member={casa.member} bebe={casa.bebe} mama={casa.mama} panelInicial={panel} onPanelAbierto={() => setPanel(null)} />}
-      {seccion === 'comida' && <Super member={casa.member} vistaInicial={vistaComida} onVistaUsada={() => setVistaComida(null)} />}
+      {seccion === 'comida' && <Super member={casa.member} vistaInicial={vistaComida} onVistaUsada={() => setVistaComida(null)} foco={focoPlato} onFocoUsado={() => setFocoPlato(null)} />}
       <nav className="pie-nav" aria-label="Secciones">
         <button aria-current={seccion === 'ahora' ? 'page' : undefined} onClick={() => ir('ahora')}>
           <IcoAhora />
