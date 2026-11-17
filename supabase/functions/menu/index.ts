@@ -147,7 +147,7 @@ async function candidatos(db: SupabaseClient, plan: PlanT) {
   return porItem;
 }
 
-async function elegir(claude: Anthropic, prefs: Prefs, plan: PlanT, porItem: Producto[][]) {
+async function elegir(claude: Anthropic, prefs: Prefs, plan: PlanT, porItem: Producto[][], tope?: { euros: number; estricto?: boolean }) {
   const codigos = new Map<string, Producto>();
   const bloques = plan.compra.map((c, i) => {
     const lineas = porItem[i].map((p, j) => {
@@ -169,7 +169,8 @@ async function elegir(claude: Anthropic, prefs: Prefs, plan: PlanT, porItem: Pro
       content: `Elige qué producto comprar para cada ingrediente de la lista. Criterios, por orden:
 1) Las preferencias de compra de la casa: ${prefs.reglas.join(" ") || "ninguna"}
 2) Que sea de verdad ese ingrediente (no un derivado: «cebolla» no es «cebolla frita»).
-3) El más barato por kilo o litro con un envase razonable para la cantidad.
+3) El más barato por kilo o litro con un envase razonable para la cantidad.${tope ? `
+4) Toda esta compra tiene un tope de ${euros(tope.euros)}: ${tope.estricto ? "se ha pasado; elige el envase más pequeño que cubra la cantidad y marca blanca, aunque por kilo salga algo más caro" : "ante la duda, el envase más pequeño que cubra la cantidad y marca blanca"}.` : ""}
 Calcula las unidades para cubrir la cantidad. Si el producto se vende «al peso, por kg», su precio es por kilo: pon unidades 1 y en «kilos» lo que hay que pedir (no un kilo entero si hace falta poco).
 Si ninguno sirve, deja el producto vacío.
 
@@ -467,30 +468,47 @@ async function leerPrefs(db: SupabaseClient, hogar: string): Promise<Prefs> {
 const SoloCompra = Plan.pick({ resumen: true, compra: true });
 
 async function rehacerCompra(db: SupabaseClient, claude: Anthropic, menuId: string, hogar: string) {
-  const { data: menu } = await db.from("menus").select("plan").eq("id", menuId).eq("household_id", hogar).eq("estado", "listo").maybeSingle();
-  const plan = menu?.plan as (PlanT & { compra_vieja?: boolean }) | null;
+  const { data: menu } = await db.from("menus").select("plan, semana").eq("id", menuId).eq("household_id", hogar).eq("estado", "listo").maybeSingle();
+  const plan = menu?.plan as (PlanT & { compra_vieja?: boolean; dias: { dia: string; almuerzo: PlatoMenu; cena: PlatoMenu }[] }) | null;
   if (!plan) throw new Error("No encuentro ese menú");
   const prefs = await leerPrefs(db, hogar);
   const casa = await textoCasa(db, hogar);
-  const platos = plan.dias.map((d) => {
-    const p = (x: z.infer<typeof Plato>) =>
-      x.etiquetas?.includes("Fuera") ? `${x.titulo} (no se cocina: no compres nada)` : `${x.titulo}${x.ingredientes?.length ? `: ${x.ingredientes.join("; ")}` : " (escrito a mano: deduce los ingredientes de un plato así)"}`;
-    return `${d.dia}\n  Almuerzo: ${p(d.almuerzo)}\n  Cena: ${p(d.cena)}`;
-  }).join("\n");
+  // Lo que ya pasó o ya se comió está comprado: solo se compra lo que queda de semana.
+  const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
+  const desde = Math.max(0, Math.min(7, Math.round((Date.parse(`${hoy}T12:00:00Z`) - Date.parse(`${menu!.semana}T12:00:00Z`)) / 86400_000)));
+  const quedan = 7 - desde;
+  if (!quedan) throw new Error("Esta semana ya ha terminado");
+  // El presupuesto es de la semana entera: a la compra le toca la parte de los días que quedan.
+  const tope = Math.round(prefs.presupuesto * quedan / 7 * 100) / 100;
+  const p = (x: PlatoMenu & { hecho?: unknown }) =>
+    x.hecho ? null
+    : x.etiquetas?.some((e) => e === "Fuera" || e === "Sin compra") ? `${x.titulo} (no se cocina: no compres nada)`
+    : `${x.titulo}${x.ingredientes?.length ? `: ${x.ingredientes.join("; ")}` : " (escrito a mano: deduce los ingredientes de un plato así)"}`;
+  const platos = plan.dias.slice(desde).map((d) =>
+    [d.dia, ...(["almuerzo", "cena"] as const).map((m) => [m, p(d[m])] as const).filter(([, t]) => t).map(([m, t]) => `  ${m === "almuerzo" ? "Almuerzo" : "Cena"}: ${t}`)].join("\n")
+  ).join("\n");
   const r = await claude.messages.parse({
     model: MODELO,
     max_tokens: 16000,
     system: SISTEMA,
+    thinking: { type: "disabled" },
     output_config: { format: zodOutputFormat(SoloCompra) },
     messages: [{
       role: "user",
-      content: [textoPrefs(prefs), casa, `Estos son los platos de la semana, ya decididos (no los cambies). Escribe el resumen de la semana (una frase) y haz la lista de la compra completa de la semana para ${prefs.personas} personas, juntando lo que se repite, incluidos desayunos y lo de después de cenar. Los días de sobras no suman compra.\n${platos}`].filter(Boolean).join("\n\n"),
+      content: [textoPrefs(prefs), casa, `Estos son los platos que quedan de la semana (${quedan} ${quedan === 1 ? "día" : "días"}), ya decididos (no los cambies). Escribe el resumen de la semana (una frase) y haz la lista de la compra de esos días para ${prefs.personas} personas: cantidades justas, juntando lo que se repite, con desayunos y lo de después de cenar solo para ${quedan} ${quedan === 1 ? "día" : "días"}. No compres lo básico de despensa que cualquier casa tiene (sal, aceite, especias) salvo que haga falta mucho. Los días de sobras no suman compra. Tope para esta compra: ${euros(tope)}.\n${platos}`].filter(Boolean).join("\n\n"),
     }],
   });
   if (!r.parsed_output) throw new Error(`Claude no devolvió la compra (${r.stop_reason})`);
   const nuevo = { ...plan, resumen: r.parsed_output.resumen, compra: r.parsed_output.compra };
-  const compra = await elegir(claude, prefs, nuevo, await candidatos(db, nuevo));
-  const total = compra.reduce((t, c) => t + c.coste, 0);
+  const productos = await candidatos(db, nuevo);
+  let compra = await elegir(claude, prefs, nuevo, productos, { euros: tope });
+  let total = compra.reduce((t, c) => t + c.coste, 0);
+  // Si se pasa, otra vuelta eligiendo envases más pequeños; se queda la más barata.
+  if (total > tope * 1.03) {
+    const otra = await elegir(claude, prefs, nuevo, productos, { euros: tope, estricto: true });
+    const total2 = otra.reduce((t, c) => t + c.coste, 0);
+    if (total2 < total) [compra, total] = [otra, total2];
+  }
   delete nuevo.compra_vieja;
   delete (nuevo as { cambios?: unknown }).cambios;
   const { compra: _, ...sinCompra } = nuevo;
